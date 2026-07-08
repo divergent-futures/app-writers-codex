@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/stores/app.svelte';
-  import { EDIT_CONFIG, findEntity, deleteEntity, refOptions } from '../lib/edit';
+  import { EDIT_CONFIG, findEntity, refOptions } from '../lib/edit';
   import type { CollectionKey } from '../lib/schema';
 
   let {
@@ -69,8 +69,7 @@
   async function del() {
     if (!app.active || !confirm(`Delete this ${cfg.title}? This cannot be undone.`)) return;
     busy = true;
-    deleteEntity(app.active.data, type, id);
-    await app.save();
+    await app.deleteEntity(type, id);
     busy = false;
     onDeleted();
     onClose();

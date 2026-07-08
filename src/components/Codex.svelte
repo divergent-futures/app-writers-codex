@@ -29,20 +29,29 @@
   let ready = $state(false);
   let query = $state('');
   let searchOpen = $state(false);
-  let detail = $state('');
   let detailType = $state('');
   let detailId = $state('');
   let editing = $state(false);
   let writeTarget = $state('');
   let idx: any[] = $state([]);
 
+  // The drawer content is DERIVED from the open entity + rev, so an edit/save (which bumps rev)
+  // auto-refreshes the drawer — no manual re-render, and a deleted entity resolves to '' (closes).
+  const detail = $derived.by(() => {
+    rev;
+    return detailType && detailId ? E.detailHTML(detailType, detailId) : '';
+  });
+
   let hostEl: HTMLElement;
   let drawerEl = $state<HTMLElement | null>(null);
 
+  let rehydrateSeq = 0;
   async function rehydrate() {
     const a = app.active;
     if (!a) return;
+    const token = ++rehydrateSeq; // sequence guard: a newer call supersedes this one
     const hy = await hydrate(a.id, a.data);
+    if (token !== rehydrateSeq) return; // stale (project switched / re-saved mid-flight) — drop it
     E.setData(hy);
     setImageProject(a.id);
     idx = E.buildSearchIndex();
@@ -54,6 +63,18 @@
   $effect(() => {
     const id = app.active?.id;
     if ([id, app.active?.updatedAt].length && id) void rehydrate();
+  });
+
+  // close transient UI (drawer, editor, search) when the project itself changes
+  let lastActiveId = '';
+  $effect(() => {
+    const id = app.active?.id ?? '';
+    if (id !== lastActiveId) {
+      lastActiveId = id;
+      closeDetail();
+      editing = false;
+      searchOpen = false;
+    }
   });
 
   // hydrate photo slots after each render pass
@@ -142,8 +163,7 @@
       const i = raw.indexOf(':');
       if (i > 0) {
         detailType = raw.slice(0, i);
-        detailId = raw.slice(i + 1);
-        detail = E.detailHTML(detailType, detailId);
+        detailId = raw.slice(i + 1); // `detail` derives from these + rev
       }
       searchOpen = false;
       return;
@@ -151,17 +171,20 @@
   }
 
   function closeDetail() {
-    detail = '';
     detailType = '';
     detailId = '';
   }
-  async function afterEdit() {
-    await rehydrate();
-    if (detailId) detail = E.detailHTML(detailType, detailId); // refresh the open drawer
+  // save() bumps updatedAt -> the rehydrate effect runs -> rev++ -> the derived drawer refreshes.
+  function afterEdit() {
+    /* drawer auto-refreshes reactively; nothing to do */
   }
-  async function afterDelete() {
-    await rehydrate();
+  function afterDelete() {
     closeDetail();
+  }
+
+  function onWindowClick(e: MouseEvent) {
+    // close the search dropdown when clicking anywhere outside the search box
+    if (searchOpen && !(e.target as HTMLElement).closest('.searchwrap')) searchOpen = false;
   }
 
   function onKey(e: KeyboardEvent) {
@@ -184,7 +207,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onclick={onWindowClick} />
 
 <header>
   <h1>Writer’s Codex</h1>
@@ -242,7 +265,7 @@
     {:else if view === 'reference'}
       <Reference {rev} />
     {:else if view === 'write'}
-      <Write {rev} target={writeTarget} onProseChange={rehydrate} />
+      <Write {rev} target={writeTarget} onProseChange={rehydrate} onTargetConsumed={() => (writeTarget = '')} />
     {:else if view === 'notes'}
       <div class="callout warn">
         <b>Quick scratch</b> — saved in this browser only.

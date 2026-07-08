@@ -42,14 +42,20 @@ const nowISO = () => new Date().toISOString();
 export async function buildProjectBundle(projectId: string): Promise<ProjectBundle | null> {
   const rec = await getProject(projectId);
   if (!rec) return null;
+  // Only export prose/worldbuilding for entities that still exist — drop rows orphaned by a delete
+  // so a deleted chapter's text never rides along in the export.
+  const chapterIds = new Set((rec.data.chapters || []).map((c) => c.id));
+  const wbIds = new Set([...(rec.data.worlds || []), ...(rec.data.books || [])].map((e) => e.id));
+  const pick = (obj: Record<string, string>, keep: Set<string>) =>
+    Object.fromEntries(Object.entries(obj).filter(([k]) => keep.has(k)));
   return {
     format: 'writers-codex-project',
     schemaVersion: SCHEMA_VERSION,
     exportedAt: nowISO(),
     name: rec.name,
     project: rec.data,
-    prose: await allProse(projectId),
-    worldbuilding: await allWorldbuilding(projectId),
+    prose: pick(await allProse(projectId), chapterIds),
+    worldbuilding: pick(await allWorldbuilding(projectId), wbIds),
   };
 }
 
@@ -105,12 +111,17 @@ function genId(base: string): string {
   return `${slug(base)}-${rand}`;
 }
 
-/** Commit one bundle into the store as a NEW project record (import never overwrites silently). */
-export async function importProjectBundle(bundle: ProjectBundle): Promise<ImportResult> {
-  if (bundle.format !== 'writers-codex-project') throw new Error('not a Writer’s Codex project file');
+function assertValidBundle(bundle: ProjectBundle): void {
+  if (!bundle || bundle.format !== 'writers-codex-project') throw new Error('not a Writer’s Codex project file');
   if (bundle.schemaVersion !== SCHEMA_VERSION)
     throw new Error(`unsupported schemaVersion ${bundle.schemaVersion} (expected ${SCHEMA_VERSION})`);
+  if (!bundle.project || typeof bundle.project !== 'object' || !Array.isArray(bundle.project.characters))
+    throw new Error('file is missing its project data');
+}
 
+/** Commit one bundle into the store as a NEW project record (import never overwrites silently). */
+export async function importProjectBundle(bundle: ProjectBundle): Promise<ImportResult> {
+  assertValidBundle(bundle);
   const warnings = validate(bundle.project);
   const id = genId(bundle.name || bundle.project.series?.title || 'imported');
   const rec: ProjectRecord = {
@@ -136,8 +147,12 @@ export async function importFromFile(file: File): Promise<ImportResult[]> {
   }
   const obj = parsed as { format?: string };
   if (obj.format === 'writers-codex-library') {
+    const members = (parsed as LibraryBundle).projects ?? [];
+    if (!members.length) throw new Error('this library file contains no projects');
+    // validate ALL members before committing ANY, so a bad member can't leave a partial import
+    members.forEach(assertValidBundle);
     const results: ImportResult[] = [];
-    for (const b of (parsed as LibraryBundle).projects ?? []) results.push(await importProjectBundle(b));
+    for (const b of members) results.push(await importProjectBundle(b));
     return results;
   }
   if (obj.format === 'writers-codex-project') {

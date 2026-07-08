@@ -7,7 +7,10 @@
 
 import {
   ACTIVE_PROJECT_KEY,
+  deleteImage,
   deleteProject,
+  deleteProse,
+  deleteWorldbuilding,
   getMeta,
   getProject,
   listProjects,
@@ -15,7 +18,8 @@ import {
   setMeta,
   type ProjectRecord,
 } from '../db';
-import { emptyProject, type ProjectData } from '../schema';
+import { COLLECTION_KEYS, emptyProject, type ProjectData } from '../schema';
+import { deleteEntity as removeFromCollection } from '../edit';
 import { validate, type Warning } from '../validate';
 import { importFromFile, importProjectBundle, type ImportResult, type ProjectBundle } from '../export';
 
@@ -64,12 +68,14 @@ class AppStore {
   }
 
   async remove(id: string): Promise<void> {
+    const wasActive = this.active?.id === id;
+    if (wasActive) this.active = null; // avoid a phantom deleted-project read during the async gap
     await deleteProject(id);
     this.projects = await listProjects();
-    if (this.active?.id === id) {
+    if (wasActive) {
       const next = this.projects[0];
       if (next) await this.switchTo(next.id);
-      else await this.init();
+      else await this.init(); // no projects left → recreate a blank one
     }
   }
 
@@ -106,9 +112,10 @@ class AppStore {
     if (!t) return;
     const d = this.active.data;
     const slug = t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || kind;
-    const taken = new Set<string>([
-      ...d.notes.map((n) => n.id), ...d.characters.map((c) => c.id), ...d.worlds.map((w) => w.id),
-    ]);
+    // ids are only unique *within* a collection, but a shared bare id across collections is a latent
+    // hazard (esp. for image/prose keys), so keep every id globally unique here.
+    const taken = new Set<string>();
+    for (const key of COLLECTION_KEYS) for (const e of d[key] as { id: string }[]) taken.add(e.id);
     let id = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
     while (taken.has(id)) id = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
     const today = new Date().toISOString().slice(0, 10);
@@ -119,6 +126,18 @@ class AppStore {
     } else {
       d.notes.push({ id, date: today, text: t, tags: [kind === 'idea' ? 'idea' : 'capture'] });
     }
+    await this.save();
+  }
+
+  /** Delete a top-level entity AND its associated prose / worldbuilding / image rows, then save. */
+  async deleteEntity(type: string, id: string): Promise<void> {
+    if (!this.active) return;
+    const pid = this.active.id;
+    const ok = removeFromCollection(this.active.data, type, id);
+    if (!ok) return;
+    if (type === 'chapter') await deleteProse(pid, id);
+    if (type === 'world' || type === 'book') await deleteWorldbuilding(pid, id);
+    await deleteImage(pid, `${type}:${id}`); // no-op if none
     await this.save();
   }
 

@@ -1,16 +1,21 @@
 <script lang="ts">
+  import { onDestroy, untrack } from 'svelte';
   import * as E from '../../lib/render/engine.js';
   import type { Book, Chapter } from '../../lib/schema';
   import { app } from '../../lib/stores/app.svelte';
   import { getProse, putProse } from '../../lib/db';
 
-  let { rev, target = '', onProseChange }: { rev: number; target?: string; onProseChange?: () => void } = $props();
+  let {
+    rev,
+    target = '',
+    onProseChange,
+    onTargetConsumed,
+  }: { rev: number; target?: string; onProseChange?: () => void; onTargetConsumed?: () => void } = $props();
 
   let book = $state('');
   let chapter = $state('');
   let prose = $state('');
   let proseChapter = ''; // which chapter `prose` was loaded for
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   const books = $derived.by<Book[]>(() => {
     rev;
@@ -20,7 +25,6 @@
       .sort((a, b) => (a.order || 0) - (b.order || 0))
       .filter((b) => chs.some((c) => c.book === b.id));
   });
-
   const rail = $derived.by(() => {
     rev;
     return book ? E.writeRail(book) : '';
@@ -30,63 +34,85 @@
     return chapter ? E.cockpit(chapter) : '';
   });
 
-  // pick an initial book/chapter when the project changes or a resume target arrives
-  let seeded = -1;
+  const firstChapterOf = (bookId: string) =>
+    ((E.data().chapters || []) as Chapter[])
+      .filter((c) => c.book === bookId)
+      .sort((x, y) => (x.order || 0) - (y.order || 0))[0];
+
+  // Default-select first book/chapter only when the PROJECT changes (untracked id read), so a
+  // rev bump from an edit/save never snaps the writer off the chapter they're on.
+  let lastPid = '';
   $effect(() => {
-    const chs = (E.data().chapters || []) as Chapter[];
-    if (target) {
-      const ch = chs.find((c) => c.id === target);
-      if (ch) {
-        book = ch.book;
-        chapter = ch.id;
-        seeded = rev;
-        return;
-      }
-    }
-    if (seeded !== rev) {
-      seeded = rev;
+    rev;
+    const pid = untrack(() => app.active?.id ?? '');
+    if (pid !== lastPid) {
+      lastPid = pid;
       const b = books[0];
       book = b ? b.id : '';
-      const first = chs.filter((c) => c.book === book).sort((x, y) => (x.order || 0) - (y.order || 0))[0];
+      const first = book ? firstChapterOf(book) : undefined;
       chapter = first ? first.id : '';
     }
   });
 
-  // load prose whenever the selected chapter changes
+  // Apply a resume target exactly once when it arrives, then tell the parent to clear it.
+  let lastTarget = '';
+  $effect(() => {
+    const tgt = target;
+    if (!tgt) { lastTarget = ''; return; }
+    if (tgt === lastTarget) return;
+    lastTarget = tgt;
+    const ch = ((E.data().chapters || []) as Chapter[]).find((c) => c.id === tgt);
+    if (ch) { book = ch.book; chapter = ch.id; }
+    onTargetConsumed?.();
+  });
+
+  // ---- prose autosave (per-chapter; never drops a pending save on chapter/project switch) ----
+  let pending: { pid: string; cid: string; text: string } | null = null;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  function commitPending() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (!pending) return;
+    const p = pending;
+    pending = null;
+    putProse(p.pid, p.cid, p.text).then(() => onProseChange?.());
+  }
+  function onProseInput() {
+    const pid = app.active?.id;
+    const cid = proseChapter;
+    if (!pid || !cid) return;
+    pending = { pid, cid, text: prose };
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(commitPending, 600);
+  }
+  onDestroy(commitPending);
+
+  // Load prose when the chapter changes — flush the previous chapter's pending save first, and
+  // guard against out-of-order resolution overwriting a newer chapter's prose.
   $effect(() => {
     const pid = app.active?.id;
     const cid = chapter;
+    commitPending();
     if (!pid || !cid) {
       prose = '';
       proseChapter = '';
       return;
     }
     getProse(pid, cid).then((md) => {
-      prose = md;
-      proseChapter = cid;
+      if (app.active?.id === pid && chapter === cid) {
+        prose = md;
+        proseChapter = cid;
+      }
     });
   });
 
   function onBook(e: Event) {
     book = (e.target as HTMLSelectElement).value;
-    const chs = (E.data().chapters || []) as Chapter[];
-    const first = chs.filter((c) => c.book === book).sort((x, y) => (x.order || 0) - (y.order || 0))[0];
+    const first = firstChapterOf(book);
     chapter = first ? first.id : '';
   }
   function onRailClick(e: MouseEvent) {
     const it = (e.target as HTMLElement).closest('[data-wch]');
     if (it) chapter = it.getAttribute('data-wch') || '';
-  }
-  function onProseInput() {
-    const pid = app.active?.id;
-    const cid = proseChapter;
-    if (!pid || !cid) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    const text = prose;
-    saveTimer = setTimeout(async () => {
-      await putProse(pid, cid, text);
-      onProseChange?.(); // re-hydrate so word counts/search update
-    }, 600);
   }
 
   // project-scoped parking note (browser-local scratch, like the prototype)
@@ -94,24 +120,12 @@
   let park = $state('');
   $effect(() => {
     const k = parkKey;
-    try {
-      park = localStorage.getItem(k) || '';
-    } catch {
-      park = '';
-    }
+    try { park = localStorage.getItem(k) || ''; } catch { park = ''; }
   });
   function onParkInput() {
-    try {
-      localStorage.setItem(parkKey, park);
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem(parkKey, park); } catch { /* ignore */ }
     if (chapter) {
-      try {
-        localStorage.setItem(`wc_${app.active?.id ?? ''}_lastChapter`, chapter);
-      } catch {
-        /* ignore */
-      }
+      try { localStorage.setItem(`wc_${app.active?.id ?? ''}_lastChapter`, chapter); } catch { /* ignore */ }
     }
   }
 </script>

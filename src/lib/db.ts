@@ -115,6 +115,10 @@ export async function putProse(projectId: string, chapterId: string, markdown: s
   await (await db()).put('prose', { projectId, chapterId, markdown });
 }
 
+export async function deleteProse(projectId: string, chapterId: string): Promise<void> {
+  await (await db()).delete('prose', [projectId, chapterId]);
+}
+
 export async function allProse(projectId: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   const tx = (await db()).transaction('prose', 'readonly');
@@ -136,6 +140,10 @@ export async function getWorldbuilding(projectId: string, entityId: string): Pro
 
 export async function putWorldbuilding(projectId: string, entityId: string, markdown: string): Promise<void> {
   await (await db()).put('worldbuilding', { projectId, entityId, markdown });
+}
+
+export async function deleteWorldbuilding(projectId: string, entityId: string): Promise<void> {
+  await (await db()).delete('worldbuilding', [projectId, entityId]);
 }
 
 export async function allWorldbuilding(projectId: string): Promise<Record<string, string>> {

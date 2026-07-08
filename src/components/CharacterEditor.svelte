@@ -7,7 +7,7 @@
     id: string; onClose: () => void; onSaved: () => void; onDeleted: () => void;
   } = $props();
 
-  const data = () => app.active!.data;
+  const data = () => app.active?.data;
 
   // deep plain-copy the character so edits are local until Save (seeded once)
   const c = $state<Character>({ id: '', name: '', role: '', oneLine: '', source: '', relationships: [], links: [], arcs: [], lessons: [], aliases: [] });
@@ -28,12 +28,12 @@
     aliasText = (c.aliases || []).join(', ');
   });
 
-  const books = $derived(data().books.slice().sort((a, b) => (a.order || 0) - (b.order || 0)));
-  const characters = $derived(data().characters.filter((x) => x.id !== id));
-  const worlds = $derived(data().worlds);
-  const threads = $derived(data().threads);
+  const books = $derived((data()?.books ?? []).slice().sort((a, b) => (a.order || 0) - (b.order || 0)));
+  const characters = $derived((data()?.characters ?? []).filter((x) => x.id !== id));
+  const worlds = $derived(data()?.worlds ?? []);
+  const threads = $derived(data()?.threads ?? []);
 
-  const bookTitle = (bid?: string) => data().books.find((b) => b.id === bid)?.title || bid || '(no book)';
+  const bookTitle = (bid?: string) => (data()?.books ?? []).find((b) => b.id === bid)?.title || bid || '(no book)';
   const unarcedBooks = $derived(books.filter((b) => !(c.arcs || []).some((a) => a.book === b.id)));
 
   function addArc() {
@@ -81,10 +81,7 @@
   async function del() {
     if (!app.active || !confirm('Delete this character? This cannot be undone.')) return;
     busy = true;
-    const arr = app.active.data.characters;
-    const i = arr.findIndex((x) => x.id === id);
-    if (i >= 0) arr.splice(i, 1);
-    await app.save();
+    await app.deleteEntity('character', id);
     busy = false;
     onDeleted();
     onClose();

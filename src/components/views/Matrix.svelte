@@ -1,24 +1,29 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import * as E from '../../lib/render/engine.js';
+  import { app } from '../../lib/stores/app.svelte';
   import type { Book } from '../../lib/schema';
 
   let { rev }: { rev: number } = $props();
 
   let mode = $state<'books' | 'traj'>('books');
   let selected = $state<string[]>([]);
-  let inited = -1;
+  let lastPid = '';
 
   const books = $derived.by<Book[]>(() => {
     rev;
     return ((E.data().books || []) as Book[]).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
   });
 
-  // default-select the first book whenever the project changes
+  // default-select the first book only when the PROJECT changes — not on every edit/save.
+  // Keyed on rev (re-runs after each data load) but the reset guard reads the project id untracked,
+  // so an in-project save keeps the user's book selection + Trajectory mode.
   $effect(() => {
-    if (inited !== rev) {
-      inited = rev;
-      const first = books[0];
-      selected = first ? [first.id] : [];
+    rev;
+    const pid = untrack(() => app.active?.id ?? '');
+    if (pid !== lastPid) {
+      lastPid = pid;
+      selected = books[0] ? [books[0].id] : [];
       mode = 'books';
     }
   });
