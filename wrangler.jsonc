@@ -1,0 +1,12 @@
+{
+  // Cloudflare deploy config. This is a STATIC-ASSETS-ONLY Worker (no server code): Cloudflare
+  // serves the files in dist/ as a local-first SPA. `single-page-application` handling serves
+  // index.html for unknown paths; _headers/_redirects in dist/ are honoured too.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "writers-codex",
+  "compatibility_date": "2025-06-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

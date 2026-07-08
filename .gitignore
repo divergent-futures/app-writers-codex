@@ -6,6 +6,7 @@ dist/
 .DS_Store
 Thumbs.db
 .vite/
+.wrangler/
 
 # TJ's private Cosmos content — used locally as dev data, NEVER shipped in the public repo.
 # Regenerate locally with `npm run build:sample` (reads C:\Projects\story-workbench).
