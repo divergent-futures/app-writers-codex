@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+*.local
+.DS_Store
+Thumbs.db
+.vite/
+
+# TJ's private Cosmos content — used locally as dev data, NEVER shipped in the public repo.
+# Regenerate locally with `npm run build:sample` (reads C:\Projects\story-workbench).
+# The public app's example world will be a separate, neutral demo (decided later).
+/src/lib/sample/
