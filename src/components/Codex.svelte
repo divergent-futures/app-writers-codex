@@ -244,10 +244,11 @@
     {#if isEmptyProject && !welcomeDismissed && view === 'dashboard'}
       <div class="callout welcome">
         <b>Welcome to Writer’s Codex.</b> This is your world — it starts empty and lives entirely on
-        this device. Tap the <b>+</b> button to capture a character or idea, or explore a fully-built
-        example first.
+        this device. Tap the <b>+</b> button (bottom-right) to capture a character or idea{#if app.hasExampleWorld}, or explore a fully-built example first{/if}.
         <div class="row" style="margin-top:10px;gap:8px">
-          <button class="btn primary" onclick={loadExample}>Load the Science-Fiction example</button>
+          {#if app.hasExampleWorld}
+            <button class="btn primary" onclick={loadExample}>Load the example world</button>
+          {/if}
           <button class="btn" onclick={() => (welcomeDismissed = true)}>Start blank</button>
         </div>
       </div>

@@ -28,11 +28,17 @@ function genProjectId(name: string): string {
   return `${base}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// The bundled example world is TJ's private dev data (git-ignored). Resolved via glob so the public
+// build — which has no sample file — is graceful: `hasExampleWorld` is false and the UI hides the loader.
+const SAMPLE_IMPORTERS = import.meta.glob('../sample/sample-project.json', { import: 'default' });
+
 class AppStore {
   projects = $state<ProjectRecord[]>([]);
   active = $state<ProjectRecord | null>(null);
   warnings = $state<Warning[]>([]);
   loading = $state(true);
+  /** True only when an example world is bundled in this build (never in the public repo). */
+  readonly hasExampleWorld = Object.keys(SAMPLE_IMPORTERS).length > 0;
 
   async init(): Promise<void> {
     this.loading = true;
@@ -95,10 +101,9 @@ class AppStore {
    * builds fine without it and this button simply reports that no example is bundled. The public
    * app's own neutral example world will be wired in here later. */
   async loadSampleWorld(): Promise<void> {
-    const importers = import.meta.glob('../sample/sample-project.json', { import: 'default' });
-    const key = Object.keys(importers)[0];
+    const key = Object.keys(SAMPLE_IMPORTERS)[0];
     if (!key) throw new Error('No example world is bundled in this build yet.');
-    const bundle = (await importers[key]()) as unknown as ProjectBundle;
+    const bundle = (await SAMPLE_IMPORTERS[key]()) as unknown as ProjectBundle;
     const result = await importProjectBundle(bundle);
     this.projects = await listProjects();
     await this.switchTo(result.id);

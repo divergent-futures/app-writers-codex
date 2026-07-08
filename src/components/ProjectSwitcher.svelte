@@ -50,7 +50,9 @@
     {/each}
   </select>
   <button class="btn" onclick={newEmpty} disabled={busy}>+ New</button>
-  <button class="btn" onclick={loadSample} disabled={busy}>Load SF example</button>
+  {#if app.hasExampleWorld}
+    <button class="btn" onclick={loadSample} disabled={busy}>Load example</button>
+  {/if}
   <button class="btn" onclick={() => fileInput.click()} disabled={busy}>Import…</button>
   <input
     bind:this={fileInput}
