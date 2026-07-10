@@ -33,5 +33,10 @@ export default defineConfig({
       },
     }),
   ],
-  server: { port: 5273 },
+  // During `npm run dev`, proxy the sync API to a locally-running Worker (`npm run dev:api`, port 8788)
+  // so the app and API share an origin. In production both are served by the same Worker deployment.
+  server: {
+    port: 5273,
+    proxy: { '/api': 'http://127.0.0.1:8788' },
+  },
 });

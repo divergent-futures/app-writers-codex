@@ -1,0 +1,17 @@
+{
+  "//": "Separate tsconfig for the Worker — Workers runtime types, NOT DOM. Kept out of the frontend's tsconfig (src/**) so the two type worlds never clash. Check with `npm run check:worker`.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true
+  },
+  "include": ["**/*.ts"]
+}

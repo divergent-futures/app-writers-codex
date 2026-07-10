@@ -146,6 +146,23 @@ class AppStore {
     await this.save();
   }
 
+  /** Re-read the library + active project from IndexedDB after the sync engine applied remote changes.
+   *  Re-assigning `active` drives the existing Codex reactivity (drawer/views/hydration) to refresh. */
+  async syncReload(): Promise<void> {
+    this.projects = await listProjects();
+    if (!this.active) return;
+    const fresh = await getProject(this.active.id);
+    if (fresh) {
+      this.active = fresh;
+      this.warnings = validate(fresh.data);
+    } else {
+      // the active project was deleted on another device
+      const next = this.projects[0];
+      if (next) await this.switchTo(next.id);
+      else await this.init();
+    }
+  }
+
   /** Parse a user file (project or library bundle), import every project, switch to the first. */
   async importFile(file: File): Promise<ImportResult[]> {
     const results = await importFromFile(file);

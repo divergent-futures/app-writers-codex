@@ -9,9 +9,12 @@
     "build": "npm run build:sample && vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check:worker": "tsc -p worker/tsconfig.json",
+    "dev:api": "wrangler dev",
     "build:sample": "node scripts/build-sample.mjs"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260710.1",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tsconfig/svelte": "^5.0.4",
     "svelte": "^5.0.0",
@@ -22,6 +25,7 @@
     "wrangler": "^4.108.0"
   },
   "dependencies": {
+    "hono": "^4.12.29",
     "idb": "^8.0.0"
   },
   "allowScripts": {

@@ -1,12 +1,31 @@
 {
-  // Cloudflare deploy config. This is a STATIC-ASSETS-ONLY Worker (no server code): Cloudflare
-  // serves the files in dist/ as a local-first SPA. `single-page-application` handling serves
-  // index.html for unknown paths; _headers/_redirects in dist/ are honoured too.
+  // Cloudflare deploy config. The Worker (`main`) serves /api/* (cloud sync); everything else is
+  // served from dist/ as a local-first SPA. `run_worker_first: ["/api/*"]` means only API paths
+  // invoke the Worker — static assets are served directly, with SPA fallback for unknown routes.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "writers-codex",
+  "main": "worker/index.ts",
   "compatibility_date": "2025-06-01",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  }
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "writers-codex",
+      // Placeholder until `wrangler d1 create writers-codex` — replace with the real id it prints.
+      // Local `wrangler dev` / `d1 migrations apply --local` ignore this and use local SQLite state.
+      "database_id": "REPLACE_AFTER_D1_CREATE",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "writers-codex-images"
+    }
+  ]
 }
