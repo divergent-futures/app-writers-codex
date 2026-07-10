@@ -9,6 +9,10 @@ Thumbs.db
 .vite/
 .wrangler/
 
+# Internal working/handoff docs — keep local, never publish to the open-source repo.
+/COWORK-HANDOFF.md
+/SHERLOCK-DEMO-HANDOFF.md
+
 # TJ's private Cosmos content — used locally as dev data, NEVER shipped in the public repo.
 # Regenerate locally with `npm run build:sample` (reads C:\Projects\story-workbench).
 # The public app's example world will be a separate, neutral demo (decided later).

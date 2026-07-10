@@ -16,9 +16,7 @@
     {
       "binding": "DB",
       "database_name": "writers-codex",
-      // Placeholder until `wrangler d1 create writers-codex` — replace with the real id it prints.
-      // Local `wrangler dev` / `d1 migrations apply --local` ignore this and use local SQLite state.
-      "database_id": "REPLACE_AFTER_D1_CREATE",
+      "database_id": "f7eed447-f63a-4727-8377-2416258eea42",
       "migrations_dir": "migrations"
     }
   ],
