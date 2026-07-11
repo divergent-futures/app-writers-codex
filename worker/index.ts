@@ -16,7 +16,9 @@ import { handleImageDelete, handleImageGet, handleImagePut } from './images';
 
 export interface Env {
   DB: D1Database;
-  IMAGES: R2Bucket;
+  /** Absent until R2 is enabled on the account + the bucket exists (see wrangler.jsonc) — the image
+   *  endpoints answer 503 without it, so the rest of sync keeps working. */
+  IMAGES?: R2Bucket;
   ASSETS: Fetcher;
   /** Access team domain, e.g. https://divergentfutures.cloudflareaccess.com (prod only). */
   ACCESS_TEAM_DOMAIN?: string;

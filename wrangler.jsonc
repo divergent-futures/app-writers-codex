@@ -19,11 +19,9 @@
       "database_id": "f7eed447-f63a-4727-8377-2416258eea42",
       "migrations_dir": "migrations"
     }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "IMAGES",
-      "bucket_name": "writers-codex-images"
-    }
   ]
+  // R2 (photo sync) is DISABLED until the account has R2 enabled (needs a payment card on file) and
+  // the bucket exists — binding a nonexistent bucket fails the whole deploy. To enable: create the
+  // bucket (`npx wrangler r2 bucket create writers-codex-images`), then restore:
+  // "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "writers-codex-images" }]
 }

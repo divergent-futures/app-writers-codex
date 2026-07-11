@@ -16,7 +16,13 @@ type Ctx = Context<{ Bindings: Env; Variables: Vars }>;
 
 const r2Key = (userId: string, projectId: string, entityId: string) => `${userId}/${projectId}/${entityId}`;
 
+/** R2 is optional until the account has it enabled (see wrangler.jsonc). 503 = "photo sync not
+ *  available yet" — the client fails soft and keeps the image local. */
+const noR2 = (c: Ctx) => c.json({ error: 'photo sync not enabled on this deployment yet' }, 503);
+
 export async function handleImagePut(c: Ctx): Promise<Response> {
+  const r2 = c.env.IMAGES;
+  if (!r2) return noR2(c);
   const userId = c.get('userId');
   const projectId = c.req.param('projectId');
   const entityId = c.req.param('entityId');
@@ -27,7 +33,7 @@ export async function handleImagePut(c: Ctx): Promise<Response> {
   const body = await c.req.arrayBuffer();
   if (!body || body.byteLength === 0) return c.json({ error: 'empty body' }, 400);
   const contentType = c.req.header('Content-Type') || 'image/webp';
-  await c.env.IMAGES.put(key, body, { httpMetadata: { contentType } });
+  await r2.put(key, body, { httpMetadata: { contentType } });
 
   const rev = await nextRev(c.env.DB, userId);
   const now = Date.now();
@@ -43,12 +49,14 @@ export async function handleImagePut(c: Ctx): Promise<Response> {
 }
 
 export async function handleImageGet(c: Ctx): Promise<Response> {
+  const r2 = c.env.IMAGES;
+  if (!r2) return noR2(c);
   const userId = c.get('userId');
   const projectId = c.req.param('projectId');
   const entityId = c.req.param('entityId');
   if (!projectId || !entityId) return c.json({ error: 'bad path' }, 400);
   const key = r2Key(userId, projectId, entityId);
-  const obj = await c.env.IMAGES.get(key);
+  const obj = await r2.get(key);
   if (!obj) return c.json({ error: 'not found' }, 404);
   const headers = new Headers();
   headers.set('Content-Type', obj.httpMetadata?.contentType || 'image/webp');
@@ -58,13 +66,15 @@ export async function handleImageGet(c: Ctx): Promise<Response> {
 }
 
 export async function handleImageDelete(c: Ctx): Promise<Response> {
+  const r2 = c.env.IMAGES;
+  if (!r2) return noR2(c);
   const userId = c.get('userId');
   const projectId = c.req.param('projectId');
   const entityId = c.req.param('entityId');
   if (!projectId || !entityId) return c.json({ error: 'bad path' }, 400);
   const key = r2Key(userId, projectId, entityId);
 
-  await c.env.IMAGES.delete(key).catch(() => {});
+  await r2.delete(key).catch(() => {});
   const rev = await nextRev(c.env.DB, userId);
   const now = Date.now();
   // Keep a tombstone row so the delete propagates to the peer on its next pull.
