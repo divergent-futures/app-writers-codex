@@ -7,6 +7,7 @@
 
 import {
   ACTIVE_PROJECT_KEY,
+  EXAMPLE_SEEDED_KEY,
   deleteImage,
   deleteProject,
   deleteProse,
@@ -50,16 +51,23 @@ class AppStore {
     const lastId = await getMeta<string>(ACTIVE_PROJECT_KEY);
     let pick = (lastId && this.projects.find((p) => p.id === lastId)) || this.projects[0] || null;
     if (!pick) {
-      // First run: seed a blank "My first world" (the active default) AND, when an example world is
-      // bundled, pre-load it as a second project so it's already in the switcher dropdown to explore.
-      // No button/click needed. Guarded on lastId so it only happens on a genuinely fresh install.
+      // ships empty: create a first blank project so the app always has something to show
       pick = await this._create(emptyProject('My first world'), 'My first world');
-      if (this.hasExampleWorld && !lastId) {
+    }
+    // Seed the bundled example world exactly once — for EVERY visitor, new or returning — so it
+    // shows up in the switcher dropdown without any button click. The one-time flag means a user who
+    // later deletes it won't have it re-added on their next visit.
+    if (this.hasExampleWorld) {
+      const alreadySeeded = await getMeta<boolean>(EXAMPLE_SEEDED_KEY);
+      if (!alreadySeeded) {
         try {
           await this.seedExampleWorld();
         } catch {
-          /* example bundle missing/unreadable — fine, app still opens on the blank world */
+          /* example bundle missing/unreadable — fine, app still opens on the active world */
         }
+        // Mark seeded regardless: a failed fetch shouldn't retry-spam on every load, and a successful
+        // seed shouldn't duplicate. (Re-run "Load example" from the switcher any time to re-add it.)
+        await setMeta(EXAMPLE_SEEDED_KEY, true);
       }
     }
     await this.switchTo(pick.id);

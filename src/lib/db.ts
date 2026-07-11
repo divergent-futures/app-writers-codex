@@ -205,3 +205,6 @@ export async function setMeta(key: string, value: unknown): Promise<void> {
 }
 
 export const ACTIVE_PROJECT_KEY = 'activeProjectId';
+/** Set once the bundled example world has been auto-seeded, so it's added exactly one time
+ *  (even for returning visitors) and never re-added if the user deletes it. */
+export const EXAMPLE_SEEDED_KEY = 'exampleWorldSeeded';
