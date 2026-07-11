@@ -9,7 +9,8 @@
     "build": "npm run build:sample && vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "build:sample": "node scripts/build-sample.mjs"
+    "build:sample": "node scripts/build-sample.mjs",
+    "build:sherlock": "node scripts/build-sherlock-demo.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
