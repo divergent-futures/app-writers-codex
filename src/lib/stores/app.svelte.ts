@@ -50,8 +50,17 @@ class AppStore {
     const lastId = await getMeta<string>(ACTIVE_PROJECT_KEY);
     let pick = (lastId && this.projects.find((p) => p.id === lastId)) || this.projects[0] || null;
     if (!pick) {
-      // ships empty: create a first blank project so the app always has something to show
+      // First run: seed a blank "My first world" (the active default) AND, when an example world is
+      // bundled, pre-load it as a second project so it's already in the switcher dropdown to explore.
+      // No button/click needed. Guarded on lastId so it only happens on a genuinely fresh install.
       pick = await this._create(emptyProject('My first world'), 'My first world');
+      if (this.hasExampleWorld && !lastId) {
+        try {
+          await this.seedExampleWorld();
+        } catch {
+          /* example bundle missing/unreadable — fine, app still opens on the blank world */
+        }
+      }
     }
     await this.switchTo(pick.id);
     this.loading = false;
@@ -104,13 +113,24 @@ class AppStore {
    * public repo). Falls back to TJ's private Cosmos sample when present (git-ignored, local dev
    * only) so the button still has something to load in a dev checkout without the public bundle. */
   async loadSampleWorld(): Promise<void> {
+    const result = await this._importExampleBundle();
+    await this.switchTo(result.id);
+  }
+
+  /** Import the example world as a background project (does NOT switch to it) — used on first run
+   *  to pre-populate the switcher dropdown while the blank "My first world" stays active. */
+  async seedExampleWorld(): Promise<void> {
+    await this._importExampleBundle();
+  }
+
+  private async _importExampleBundle(): Promise<ImportResult> {
     const importers = { ...PUBLIC_EXAMPLE_IMPORTERS, ...PRIVATE_SAMPLE_IMPORTERS };
     const key = Object.keys(PUBLIC_EXAMPLE_IMPORTERS)[0] ?? Object.keys(PRIVATE_SAMPLE_IMPORTERS)[0];
     if (!key) throw new Error('No example world is bundled in this build yet.');
     const bundle = (await importers[key]()) as unknown as ProjectBundle;
     const result = await importProjectBundle(bundle);
     this.projects = await listProjects();
-    await this.switchTo(result.id);
+    return result;
   }
 
   /** Quick-capture (BUILD-SPEC §7): drop a note / character / world / idea into the active project
