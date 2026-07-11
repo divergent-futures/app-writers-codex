@@ -32,7 +32,7 @@ function slug(s) {
 }
 
 function splitBlocks(text) {
-  const lines = text.split('\n');
+  const lines = text.replace(/\r/g, '').split('\n');
   const blocks = [];
   let cur = null;
   for (const line of lines) {
@@ -358,6 +358,33 @@ for (const b of books) {
   delete b._blurb;
 }
 
+/* ---------------- reading ---------------- */
+
+const readingMd = readFileSync(join(SRC, 'reading.md'), 'utf8');
+const reading = [];
+const readingIdsSeen = new Set();
+for (const block of splitBlocks(readingMd)) {
+  if (block.type !== 'READING') continue;
+  const { fields, sections } = parseBlock(block.lines);
+  const title = fields['Title'] || '';
+  if (!title) continue;
+  let id = slug(title);
+  let dedupeId = id;
+  let n = 2;
+  while (readingIdsSeen.has(dedupeId)) dedupeId = `${id}-${n++}`;
+  readingIdsSeen.add(dedupeId);
+  reading.push({
+    id: dedupeId,
+    title,
+    author: fields['Author'] || '',
+    status: fields['Status'] || 'toread',
+    gives: fields['Gives'] || '',
+    tags: splitList(fields['Tags']),
+    correlation: fields['Correlation'] || '',
+    takeaways: sections['Takeaways'] || [],
+  });
+}
+
 /* ---------------- images ---------------- */
 
 async function fetchThumbDataUri(pageUrl, width) {
@@ -409,7 +436,7 @@ function validate(p) {
   const books_ = idsOf(p.books), chars_ = idsOf(p.characters), threads_ = idsOf(p.threads);
   const worlds_ = idsOf(p.worlds), tracks_ = idsOf(p.tracks), timeline_ = idsOf(p.timeline);
   const has = (set, id) => !!id && set.has(id);
-  for (const [name, arr] of [['book', p.books], ['character', p.characters], ['thread', p.threads], ['world', p.worlds], ['timeline', p.timeline], ['track', p.tracks], ['chapter', p.chapters], ['theme', p.themes], ['note', p.notes]]) {
+  for (const [name, arr] of [['book', p.books], ['character', p.characters], ['thread', p.threads], ['world', p.worlds], ['timeline', p.timeline], ['track', p.tracks], ['chapter', p.chapters], ['theme', p.themes], ['note', p.notes], ['reading', p.reading]]) {
     const seen = new Set();
     arr.forEach((it) => {
       if (!it.id) warnings.push(`${name}: missing id`);
@@ -473,7 +500,7 @@ async function main() {
     research: [],
     themes,
     pantheon: [],
-    reading: [],
+    reading,
     religions: [],
   };
 
