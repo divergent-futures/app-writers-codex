@@ -26,6 +26,9 @@ export interface ProjectBundle {
   project: ProjectData;
   prose: Record<string, string>;
   worldbuilding: Record<string, string>;
+  /** Bundled example worlds carry a content version so a shipped content change can refresh an
+   *  already-seeded copy in place (see app.svelte.ts reconcileExampleWorld). User exports omit it. */
+  demoVersion?: number;
 }
 
 export interface LibraryBundle {
@@ -119,11 +122,13 @@ function assertValidBundle(bundle: ProjectBundle): void {
     throw new Error('file is missing its project data');
 }
 
-/** Commit one bundle into the store as a NEW project record (import never overwrites silently). */
-export async function importProjectBundle(bundle: ProjectBundle): Promise<ImportResult> {
+/** Commit one bundle into the store. Normally creates a NEW project (random id, never overwrites);
+ *  pass `opts.id` to write at a deterministic id (used to seed/refresh the bundled example world in
+ *  place — putProject is an upsert, so an existing record at that id is overwritten with fresh data). */
+export async function importProjectBundle(bundle: ProjectBundle, opts?: { id?: string }): Promise<ImportResult> {
   assertValidBundle(bundle);
   const warnings = validate(bundle.project);
-  const id = genId(bundle.name || bundle.project.series?.title || 'imported');
+  const id = opts?.id ?? genId(bundle.name || bundle.project.series?.title || 'imported');
   const rec: ProjectRecord = {
     id,
     name: bundle.name || bundle.project.series?.title || 'Imported project',

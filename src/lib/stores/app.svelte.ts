@@ -8,6 +8,7 @@
 import {
   ACTIVE_PROJECT_KEY,
   EXAMPLE_SEEDED_KEY,
+  EXAMPLE_VERSION_KEY,
   deleteImage,
   deleteProject,
   deleteProse,
@@ -29,11 +30,26 @@ function genProjectId(name: string): string {
   return `${base}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// The example world has a FIXED, deterministic id (not a random one). This is load-bearing: every
+// device and every "Load example" click resolves to the same record, so cloud-sync merges them
+// (last-write-wins) instead of fanning out duplicate copies. It also lets a shipped content change
+// refresh the seeded copy in place (via demoVersion) rather than being frozen at first-seed content.
+const EXAMPLE_PROJECT_ID = 'example-sherlock-holmes';
+const EXAMPLE_NAME = 'Sherlock Holmes (example)';
+// Legacy copies (seeded before the fixed id existed) got random ids like `sherlock-holmes-example-a1b2c3`.
+const LEGACY_EXAMPLE_ID_PREFIX = 'sherlock-holmes-example-';
+
 // The public example world: the Sherlock Holmes demo (public domain, git-tracked — ships to everyone).
 const PUBLIC_EXAMPLE_IMPORTERS = import.meta.glob('../examples/sherlock-holmes.json', { import: 'default' });
 // TJ's private dev sample (his own Cosmos world) is git-ignored and never present in the public repo;
 // resolved via glob purely as a local-dev convenience so it can still be reached if regenerated.
 const PRIVATE_SAMPLE_IMPORTERS = import.meta.glob('../sample/sample-project.json', { import: 'default' });
+
+/** True for the bundled example world and any of its legacy random-id / renamed copies — and ONLY
+ *  those. Scoped strictly to Sherlock so it can never match TJ's private Cosmos or a user's project. */
+function isExampleCopy(p: ProjectRecord): boolean {
+  return p.id === EXAMPLE_PROJECT_ID || p.id.startsWith(LEGACY_EXAMPLE_ID_PREFIX) || p.name === EXAMPLE_NAME;
+}
 
 class AppStore {
   projects = $state<ProjectRecord[]>([]);
@@ -54,21 +70,22 @@ class AppStore {
       // ships empty: create a first blank project so the app always has something to show
       pick = await this._create(emptyProject('My first world'), 'My first world');
     }
-    // Seed the bundled example world exactly once — for EVERY visitor, new or returning — so it
-    // shows up in the switcher dropdown without any button click. The one-time flag means a user who
-    // later deletes it won't have it re-added on their next visit.
-    if (this.hasExampleWorld) {
-      const alreadySeeded = await getMeta<boolean>(EXAMPLE_SEEDED_KEY);
-      if (!alreadySeeded) {
-        try {
-          await this.seedExampleWorld();
-        } catch {
-          /* example bundle missing/unreadable — fine, app still opens on the active world */
-        }
-        // Mark seeded regardless: a failed fetch shouldn't retry-spam on every load, and a successful
-        // seed shouldn't duplicate. (Re-run "Load example" from the switcher any time to re-add it.)
-        await setMeta(EXAMPLE_SEEDED_KEY, true);
-      }
+    // Seed / de-duplicate / refresh the bundled example world (adds it to the dropdown without
+    // switching to it). Runs every load — it's cheap and idempotent, and self-heals a store that
+    // still holds legacy duplicate copies from before the fixed-id scheme.
+    try {
+      await this.reconcileExampleWorld();
+    } catch {
+      /* example bundle missing/unreadable — fine, app still opens on the active world */
+    }
+    this.projects = await listProjects();
+    // reconcile may have removed the record we picked (a legacy duplicate) — re-resolve the pick,
+    // preferring the canonical example if that's what the user was last on.
+    if (!this.projects.find((p) => p.id === pick.id)) {
+      pick =
+        (isExampleCopy(pick) && this.projects.find((p) => p.id === EXAMPLE_PROJECT_ID)) ||
+        this.projects[0] ||
+        pick;
     }
     await this.switchTo(pick.id);
     this.loading = false;
@@ -115,30 +132,79 @@ class AppStore {
     this.warnings = validate(this.active.data);
   }
 
-  /** Load the bundled example world as a fresh project.
+  /** The bundled example bundle, or null if none ships in this build.
    *
    * Prefers the public Sherlock Holmes demo (public domain, git-tracked — always present in the
    * public repo). Falls back to TJ's private Cosmos sample when present (git-ignored, local dev
-   * only) so the button still has something to load in a dev checkout without the public bundle. */
-  async loadSampleWorld(): Promise<void> {
-    const result = await this._importExampleBundle();
-    await this.switchTo(result.id);
-  }
-
-  /** Import the example world as a background project (does NOT switch to it) — used on first run
-   *  to pre-populate the switcher dropdown while the blank "My first world" stays active. */
-  async seedExampleWorld(): Promise<void> {
-    await this._importExampleBundle();
-  }
-
-  private async _importExampleBundle(): Promise<ImportResult> {
+   * only) so a dev checkout without the public bundle still has something to load. */
+  private async loadExampleBundle(): Promise<ProjectBundle | null> {
     const importers = { ...PUBLIC_EXAMPLE_IMPORTERS, ...PRIVATE_SAMPLE_IMPORTERS };
     const key = Object.keys(PUBLIC_EXAMPLE_IMPORTERS)[0] ?? Object.keys(PRIVATE_SAMPLE_IMPORTERS)[0];
-    if (!key) throw new Error('No example world is bundled in this build yet.');
-    const bundle = (await importers[key]()) as unknown as ProjectBundle;
-    const result = await importProjectBundle(bundle);
+    if (!key) return null;
+    return (await importers[key]()) as unknown as ProjectBundle;
+  }
+
+  /** Write the example bundle at the fixed id (upsert = create-or-overwrite-in-place), then record
+   *  its content version so we know when a future shipped change should refresh it. */
+  private async writeExampleWorld(bundle: ProjectBundle): Promise<void> {
+    await importProjectBundle(bundle, { id: EXAMPLE_PROJECT_ID });
+    await setMeta(EXAMPLE_SEEDED_KEY, true);
+    await setMeta(EXAMPLE_VERSION_KEY, bundle.demoVersion ?? 1);
+  }
+
+  /** Converge the store on exactly ONE example world at the fixed id. Called on every init.
+   *
+   *  - First run (never seeded, no copy present): seed it once, in the background.
+   *  - Copies present: keep exactly one canonical fixed-id record, delete every legacy/duplicate
+   *    copy, and refresh its content in place when a newer bundle has shipped (demoVersion bump).
+   *  - No copy present but seeded before: the user deleted it — respect that, don't resurrect.
+   *
+   *  Deleting the extra copies enqueues sync tombstones, so signed-in devices and the cloud converge
+   *  on the single canonical record too, instead of endlessly re-fanning out duplicates. */
+  async reconcileExampleWorld(): Promise<void> {
+    const bundle = await this.loadExampleBundle();
+    if (!bundle) return; // no example ships in this build — nothing to do
+    const version = bundle.demoVersion ?? 1;
+
+    const all = await listProjects();
+    const copies = all.filter(isExampleCopy);
+    const seeded = (await getMeta<boolean>(EXAMPLE_SEEDED_KEY)) ?? false;
+    const storedVersion = (await getMeta<number>(EXAMPLE_VERSION_KEY)) ?? 0;
+
+    if (copies.length === 0) {
+      // Only seed on genuine first run. If we've seeded before and there's no copy now, the user
+      // deleted it deliberately — leave it gone.
+      if (!seeded) await this.writeExampleWorld(bundle);
+      return;
+    }
+
+    // Collapse duplicates: drop every copy that isn't the canonical fixed-id record.
+    for (const p of copies) {
+      if (p.id !== EXAMPLE_PROJECT_ID) await deleteProject(p.id);
+    }
+    const canonicalExists = copies.some((p) => p.id === EXAMPLE_PROJECT_ID);
+    // (Re)write the canonical record when it's missing (we just migrated off a legacy id) or when a
+    // newer content version has shipped. Otherwise leave the existing record untouched so any user
+    // edits to the demo survive between content updates.
+    if (!canonicalExists || storedVersion < version) {
+      await this.writeExampleWorld(bundle);
+    } else {
+      await setMeta(EXAMPLE_SEEDED_KEY, true); // ensure the flag is set for pre-fixed-id installs
+    }
     this.projects = await listProjects();
-    return result;
+  }
+
+  /** Manual "Load example" button: refresh the single example world to the latest shipped content,
+   *  clear any stray duplicates, and switch to it. */
+  async loadSampleWorld(): Promise<void> {
+    const bundle = await this.loadExampleBundle();
+    if (!bundle) throw new Error('No example world is bundled in this build yet.');
+    await this.writeExampleWorld(bundle);
+    for (const p of (await listProjects()).filter((x) => isExampleCopy(x) && x.id !== EXAMPLE_PROJECT_ID)) {
+      await deleteProject(p.id);
+    }
+    this.projects = await listProjects();
+    await this.switchTo(EXAMPLE_PROJECT_ID);
   }
 
   /** Quick-capture (BUILD-SPEC §7): drop a note / character / world / idea into the active project

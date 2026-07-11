@@ -19,6 +19,10 @@ const ROOT = join(__dirname, '..');
 const SRC = join(ROOT, 'sherlock-demo');
 const OUT_DIR = join(ROOT, 'src', 'lib', 'examples');
 const SCHEMA_VERSION = 1;
+// Bump whenever the example's shipped CONTENT changes (new entries, edits). A higher number than a
+// user's stored copy triggers an in-place refresh on next load — see app.svelte.ts reconcileExampleWorld.
+// v2 = added the Reading list + the Detective Fiction reference pack.
+const DEMO_VERSION = 2;
 
 const UA = 'WritersCodexDemoBuilder/1.0 (https://writers-codex.space-divergentfutures.workers.dev)';
 
@@ -607,6 +611,7 @@ async function main() {
   const bundle = {
     format: 'writers-codex-project',
     schemaVersion: SCHEMA_VERSION,
+    demoVersion: DEMO_VERSION,
     exportedAt: new Date().toISOString(),
     name: 'Sherlock Holmes (example)',
     project,

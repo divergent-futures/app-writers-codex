@@ -287,3 +287,6 @@ export const ACTIVE_PROJECT_KEY = 'activeProjectId';
 /** Set once the bundled example world has been auto-seeded, so it's added exactly one time
  *  (even for returning visitors) and never re-added if the user deletes it. */
 export const EXAMPLE_SEEDED_KEY = 'exampleWorldSeeded';
+/** The `demoVersion` of the example content last written into the store. When a newer bundle ships,
+ *  reconcileExampleWorld refreshes the (fixed-id) example in place so returning users get new content. */
+export const EXAMPLE_VERSION_KEY = 'exampleWorldVersion';
