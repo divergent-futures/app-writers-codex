@@ -11,7 +11,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:worker": "tsc -p worker/tsconfig.json",
     "dev:api": "wrangler dev",
-    "build:sample": "node scripts/build-sample.mjs"
+    "build:sample": "node scripts/build-sample.mjs",
+    "build:sherlock": "node scripts/build-sherlock-demo.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260710.1",

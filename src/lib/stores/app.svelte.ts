@@ -28,17 +28,21 @@ function genProjectId(name: string): string {
   return `${base}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// The bundled example world is TJ's private dev data (git-ignored). Resolved via glob so the public
-// build — which has no sample file — is graceful: `hasExampleWorld` is false and the UI hides the loader.
-const SAMPLE_IMPORTERS = import.meta.glob('../sample/sample-project.json', { import: 'default' });
+// The public example world: the Sherlock Holmes demo (public domain, git-tracked — ships to everyone).
+const PUBLIC_EXAMPLE_IMPORTERS = import.meta.glob('../examples/sherlock-holmes.json', { import: 'default' });
+// TJ's private dev sample (his own Cosmos world) is git-ignored and never present in the public repo;
+// resolved via glob purely as a local-dev convenience so it can still be reached if regenerated.
+const PRIVATE_SAMPLE_IMPORTERS = import.meta.glob('../sample/sample-project.json', { import: 'default' });
 
 class AppStore {
   projects = $state<ProjectRecord[]>([]);
   active = $state<ProjectRecord | null>(null);
   warnings = $state<Warning[]>([]);
   loading = $state(true);
-  /** True only when an example world is bundled in this build (never in the public repo). */
-  readonly hasExampleWorld = Object.keys(SAMPLE_IMPORTERS).length > 0;
+  /** True whenever an example world is bundled in this build — the public Sherlock Holmes demo
+   *  always ships, plus TJ's private dev sample when present locally. */
+  readonly hasExampleWorld =
+    Object.keys(PUBLIC_EXAMPLE_IMPORTERS).length > 0 || Object.keys(PRIVATE_SAMPLE_IMPORTERS).length > 0;
 
   async init(): Promise<void> {
     this.loading = true;
@@ -96,14 +100,14 @@ class AppStore {
 
   /** Load the bundled example world as a fresh project.
    *
-   * The bundle is resolved via import.meta.glob so its ABSENCE is graceful: TJ's private Cosmos
-   * world lives in the git-ignored src/lib/sample/ (dev data only), so the public open-source repo
-   * builds fine without it and this button simply reports that no example is bundled. The public
-   * app's own neutral example world will be wired in here later. */
+   * Prefers the public Sherlock Holmes demo (public domain, git-tracked — always present in the
+   * public repo). Falls back to TJ's private Cosmos sample when present (git-ignored, local dev
+   * only) so the button still has something to load in a dev checkout without the public bundle. */
   async loadSampleWorld(): Promise<void> {
-    const key = Object.keys(SAMPLE_IMPORTERS)[0];
+    const importers = { ...PUBLIC_EXAMPLE_IMPORTERS, ...PRIVATE_SAMPLE_IMPORTERS };
+    const key = Object.keys(PUBLIC_EXAMPLE_IMPORTERS)[0] ?? Object.keys(PRIVATE_SAMPLE_IMPORTERS)[0];
     if (!key) throw new Error('No example world is bundled in this build yet.');
-    const bundle = (await SAMPLE_IMPORTERS[key]()) as unknown as ProjectBundle;
+    const bundle = (await importers[key]()) as unknown as ProjectBundle;
     const result = await importProjectBundle(bundle);
     this.projects = await listProjects();
     await this.switchTo(result.id);
