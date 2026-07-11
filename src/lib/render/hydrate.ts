@@ -11,22 +11,43 @@ import { allProse, allWorldbuilding } from '../db';
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
-// The bundled reference pack is TJ's private dev data (git-ignored). Resolved via glob so its
-// absence in the public repo is graceful — the Reference view simply shows empty.
-const refImporters = import.meta.glob('../sample/sample-reference.json', { import: 'default' });
-let _refCache: ReferencePack | null | undefined;
-async function loadReferencePack(): Promise<ReferencePack | null> {
-  if (_refCache !== undefined) return _refCache;
-  const key = Object.keys(refImporters)[0];
-  _refCache = key ? ((await refImporters[key]()) as ReferencePack) : null;
-  return _refCache;
+// Two bundled reference packs can exist side by side: the public Sherlock Holmes demo pack (git-tracked,
+// always present) and TJ's private Cosmos pack (git-ignored, local dev only). Which one (if either) a
+// project shows is decided by matching `ProjectData.referencePackId` against the pack's own `id` — set on
+// both sides by their respective build scripts (build-sherlock-demo.mjs / build-sample.mjs) so the two
+// stay self-consistent. A project with no marker (e.g. a fresh blank project) shows no pack.
+const publicRefImporters = import.meta.glob('../examples/sherlock-holmes-reference.json', { import: 'default' });
+const privateRefImporters = import.meta.glob('../sample/sample-reference.json', { import: 'default' });
+let _publicRefCache: ReferencePack | null | undefined;
+let _privateRefCache: ReferencePack | null | undefined;
+
+async function loadPublicRefPack(): Promise<ReferencePack | null> {
+  if (_publicRefCache !== undefined) return _publicRefCache;
+  const key = Object.keys(publicRefImporters)[0];
+  _publicRefCache = key ? ((await publicRefImporters[key]()) as ReferencePack) : null;
+  return _publicRefCache;
+}
+async function loadPrivateRefPack(): Promise<ReferencePack | null> {
+  if (_privateRefCache !== undefined) return _privateRefCache;
+  const key = Object.keys(privateRefImporters)[0];
+  _privateRefCache = key ? ((await privateRefImporters[key]()) as ReferencePack) : null;
+  return _privateRefCache;
+}
+
+async function loadReferencePack(data: ProjectData): Promise<ReferencePack | null> {
+  const wantId = data.referencePackId;
+  if (!wantId) return null;
+  const [pub, priv] = await Promise.all([loadPublicRefPack(), loadPrivateRefPack()]);
+  if (pub && pub.id === wantId) return pub;
+  if (priv && priv.id === wantId) return priv;
+  return null;
 }
 
 export async function hydrate(projectId: string, data: ProjectData): Promise<ProjectData> {
   // shallow clone + clone the collections we annotate (avoid mutating the store's reactive object)
   const prose = await allProse(projectId);
   const wb = await allWorldbuilding(projectId);
-  const pack = await loadReferencePack();
+  const pack = await loadReferencePack(data);
 
   const out: ProjectData = { ...data };
 

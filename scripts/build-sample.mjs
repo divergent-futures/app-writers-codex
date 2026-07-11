@@ -33,6 +33,9 @@ function main() {
     if (key.startsWith('_')) delete project[key];
   }
 
+  // points hydrate.ts at sample-reference.json's `id` below — keep these in sync.
+  project.referencePackId = 'sf-reference';
+
   // worldbuilding lore: worldbuilding/<id>.md -> { id: markdown }
   const worldbuilding = {};
   const wbDir = join(SRC, 'worldbuilding');

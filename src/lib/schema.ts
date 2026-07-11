@@ -357,6 +357,8 @@ export interface ProjectData {
   pantheon: Pantheon[];
   reading: Reading[];
   religions: Religion[];
+  /** which bundled ReferencePack (by its `id`) this project wants hydrated in, if any — see hydrate.ts */
+  referencePackId?: string;
   /** derived, injected only when hydrated */
   _reference?: ReferencePack;
 }

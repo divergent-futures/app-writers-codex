@@ -1,12 +1,14 @@
 // Writer's Codex — Sherlock Holmes public example-world builder.
 //
-// One-time (re-runnable) conversion of sherlock-demo/{world.md,images.md,prose/*.md} into a
-// git-tracked ProjectBundle at src/lib/examples/sherlock-holmes.json. Unlike build-sample.mjs (which
-// reads TJ's private, git-ignored Cosmos data), this source content is public domain and the OUTPUT
-// ships in the public repo as the "Load example world" button's content.
+// One-time (re-runnable) conversion of sherlock-demo/{world.md,images.md,prose/*.md,reference/*.md}
+// into git-tracked assets: a ProjectBundle and a ReferencePack. Unlike build-sample.mjs (which reads
+// TJ's private, git-ignored Cosmos data), this source content is public domain and the OUTPUT ships in
+// the public repo as the "Load example world" button's content.
 //
-//   input : sherlock-demo/world.md, sherlock-demo/images.md, sherlock-demo/prose/*.md
-//   output: src/lib/examples/sherlock-holmes.json  (a ProjectBundle, images embedded as data URIs)
+//   input : sherlock-demo/world.md, sherlock-demo/images.md, sherlock-demo/prose/*.md,
+//           sherlock-demo/reference/*.md
+//   output: src/lib/examples/sherlock-holmes.json            (a ProjectBundle, images as data URIs)
+//           src/lib/examples/sherlock-holmes-reference.json  (a ReferencePack)
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -385,6 +387,95 @@ for (const block of splitBlocks(readingMd)) {
   });
 }
 
+/* ---------------- reference pack ---------------- */
+
+const REFERENCE_PACK_ID = 'detective-reference';
+const REFERENCE_DIR = join(SRC, 'reference');
+
+const REF_COLLECTIONS = [
+  { id: 'trope', label: 'Tropes', labelSingular: 'Trope', badge: 'Trope', schema: 'example_cards', badgeBg: '#2b2416', badgeFg: '#e0c68a' },
+  { id: 'forensics', label: 'Forensics & Technology', labelSingular: 'Forensic Technique', badge: 'Forensics', schema: 'example_cards', badgeBg: '#16323a', badgeFg: '#7fd4e8' },
+  { id: 'science', label: 'Science Primers', labelSingular: 'Science Primer', badge: 'Science', schema: 'principle_cards', badgeBg: '#1f3a2b', badgeFg: '#9be0b4' },
+  { id: 'author', label: 'Authors', labelSingular: 'Author', badge: 'Author', schema: 'author_cards', badgeBg: '#3a1f43', badgeFg: '#e0a6f0' },
+  { id: 'book', label: 'Books', labelSingular: 'Book', badge: 'Book', schema: 'book_cards', badgeBg: '#3a2a16', badgeFg: '#f0c48a' },
+  { id: 'subgenre', label: 'Subgenres', labelSingular: 'Subgenre', badge: 'Subgenre', schema: 'principle_cards', badgeBg: '#3a1f1f', badgeFg: '#f0a6a6' },
+  { id: 'history', label: 'History', labelSingular: 'History', badge: 'History', schema: 'principle_cards', badgeBg: '#2a2342', badgeFg: '#c3b6f0' },
+  { id: 'psychology', label: 'Psychology', labelSingular: 'Psychology', badge: 'Psych', schema: 'principle_cards', badgeBg: '#16303a', badgeFg: '#8ac8f0' },
+  { id: 'craft', label: 'Craft', labelSingular: 'Craft', badge: 'Craft', schema: 'principle_cards', badgeBg: '#1a3a30', badgeFg: '#7fe0c0' },
+  { id: 'checklist', label: 'Checklist', labelSingular: 'Checklist', badge: 'Check', schema: 'checklist_cards', badgeBg: '#33163a', badgeFg: '#d18af0' },
+];
+
+const REF_FILE_TO_COLLECTION = {
+  'tropes.md': 'trope', 'forensics.md': 'forensics', 'science.md': 'science',
+  'authors.md': 'author', 'books.md': 'book', 'subgenres.md': 'subgenre',
+  'history.md': 'history', 'psychology.md': 'psychology', 'craft.md': 'craft',
+  'checklist.md': 'checklist',
+};
+
+const refExamples = (bullets) => bullets.map(parseBullet).map((b) => ({
+  work: b['Work'] || '',
+  medium: b['Medium'] || '',
+  year: b['Year'] || '',
+  quality: (b['Quality'] || '').trim() === 'weak' ? 'weak' : 'strong',
+  text: b['Text'] || '',
+}));
+
+const refWorks = (bullets) => bullets.map(parseBullet).map((b) => ({
+  title: b['Title'] || '',
+  year: b['Year'] || '',
+  note: b['Note'] || '',
+  start: (b['Start'] || '').trim().toLowerCase() === 'true',
+}));
+
+function buildReferencePack() {
+  const seq = new Map(); // collection id -> entries emitted so far
+  const entries = [];
+
+  for (const [file, collectionId] of Object.entries(REF_FILE_TO_COLLECTION)) {
+    const collection = REF_COLLECTIONS.find((c) => c.id === collectionId);
+    const md = readFileSync(join(REFERENCE_DIR, file), 'utf8');
+    for (const block of splitBlocks(md)) {
+      if (block.type !== 'ENTRY') continue;
+      const { fields, sections } = parseBlock(block.lines);
+      const n = (seq.get(collectionId) || 0) + 1;
+      seq.set(collectionId, n);
+      const entry = {
+        id: `${collectionId}-${n}`,
+        kind: collectionId,
+        category: fields['Category'] || '',
+        name: fields['Name'] || '',
+        description: fields['Description'] || '',
+        _label: collection.label,
+        _badge: collection.badge,
+        _bg: collection.badgeBg,
+        _fg: collection.badgeFg,
+      };
+      if (collection.schema === 'example_cards') {
+        entry.examples = refExamples(sections['Examples'] || []);
+      } else if (collection.schema === 'principle_cards') {
+        entry.principle = fields['Principle'] || '';
+        entry.example = fields['Example'] || '';
+        entry.application = fields['Application'] || '';
+      } else if (collection.schema === 'author_cards') {
+        entry.meta = fields['Meta'] || '';
+        entry.knownFor = fields['Known For'] || '';
+        entry.signature = fields['Signature'] || '';
+        entry.works = refWorks(sections['Works'] || []);
+      } else if (collection.schema === 'book_cards') {
+        entry.author = fields['Author'] || '';
+        entry.year = fields['Year'] || '';
+        entry.awards = fields['Awards'] || '';
+        entry.text = fields['Text'] || '';
+      } else if (collection.schema === 'checklist_cards') {
+        entry.items = sections['Items'] || [];
+      }
+      entries.push(entry);
+    }
+  }
+
+  return { id: REFERENCE_PACK_ID, name: 'Detective Fiction Reference', collections: REF_COLLECTIONS, entries };
+}
+
 /* ---------------- images ---------------- */
 
 async function fetchThumbDataUri(pageUrl, width) {
@@ -502,6 +593,7 @@ async function main() {
     pantheon: [],
     reading,
     religions: [],
+    referencePackId: REFERENCE_PACK_ID,
   };
 
   const warnings = validate(project);
@@ -527,6 +619,13 @@ async function main() {
 
   const counts = Object.fromEntries(Object.entries(project).filter(([, v]) => Array.isArray(v)).map(([k, v]) => [k, v.length]));
   console.log('[build-sherlock-demo] wrote sherlock-holmes.json', JSON.stringify(counts));
+
+  const referencePack = buildReferencePack();
+  writeFileSync(join(OUT_DIR, 'sherlock-holmes-reference.json'), JSON.stringify(referencePack));
+  const refCounts = Object.fromEntries(
+    REF_COLLECTIONS.map((c) => [c.id, referencePack.entries.filter((e) => e.kind === c.id).length]),
+  );
+  console.log('[build-sherlock-demo] wrote sherlock-holmes-reference.json', JSON.stringify(refCounts));
 }
 
 main();

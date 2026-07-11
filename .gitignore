@@ -13,6 +13,7 @@ Thumbs.db
 /COWORK-HANDOFF.md
 /SHERLOCK-DEMO-HANDOFF.md
 /READING-REFERENCES-HANDOFF.md
+/SHERLOCK-REFERENCE-HANDOFF.md
 
 # TJ's private Cosmos content — used locally as dev data, NEVER shipped in the public repo.
 # Regenerate locally with `npm run build:sample` (reads C:\Projects\story-workbench).
