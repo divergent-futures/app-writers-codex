@@ -19,3 +19,8 @@ Thumbs.db
 # Regenerate locally with `npm run build:sample` (reads C:\Projects\story-workbench).
 # The public app's example world will be a separate, neutral demo (decided later).
 /src/lib/sample/
+
+# build-public.mjs parks the private sample here mid-build; never commit
+/.sample-hidden/
+# quarantine for files the device bridge cannot delete
+/_to_delete/

@@ -6,11 +6,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:sample && vite build",
+    "build": "node scripts/build-public.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:worker": "tsc -p worker/tsconfig.json",
     "dev:api": "wrangler dev",
+    "build:private": "npm run build:sample && vite build",
     "build:sample": "node scripts/build-sample.mjs",
     "build:sherlock": "node scripts/build-sherlock-demo.mjs"
   },
