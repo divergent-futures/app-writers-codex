@@ -150,6 +150,14 @@
     }
   }
 
+  async function loadPrivateSample() {
+    try {
+      await app.loadPrivateSample();
+    } catch (e) {
+      alert('No private sample is bundled in this build.');
+    }
+  }
+
   async function onHostClick(e: MouseEvent) {
     if (await handleImageClick(e)) return;
     const t = e.target as HTMLElement;
@@ -248,6 +256,9 @@
         <div class="row" style="margin-top:10px;gap:8px">
           {#if app.hasExampleWorld}
             <button class="btn primary" onclick={loadExample}>Load the example world</button>
+          {/if}
+          {#if app.hasPrivateSample}
+            <button class="btn primary" onclick={loadPrivateSample}>Load Cosmos (private)</button>
           {/if}
           <button class="btn" onclick={() => (welcomeDismissed = true)}>Start blank</button>
         </div>

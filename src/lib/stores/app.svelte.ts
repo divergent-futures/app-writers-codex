@@ -39,6 +39,13 @@ const EXAMPLE_NAME = 'Sherlock Holmes (example)';
 // Legacy copies (seeded before the fixed id existed) got random ids like `sherlock-holmes-example-a1b2c3`.
 const LEGACY_EXAMPLE_ID_PREFIX = 'sherlock-holmes-example-';
 
+// TJ's private Cosmos sample, when bundled (dev-only — the glob below is empty in the public
+// repo/build), gets its OWN fixed id, entirely separate from the Sherlock demo's reconcile/version
+// machinery above. It's reached via a distinct, separately-labeled button (see loadPrivateSample) so
+// it never competes with or overwrites the public Sherlock Holmes example.
+const PRIVATE_EXAMPLE_PROJECT_ID = 'example-cosmos-private';
+const PRIVATE_EXAMPLE_NAME = 'Cosmos (private sample)';
+
 // The public example world: the Sherlock Holmes demo (public domain, git-tracked — ships to everyone).
 const PUBLIC_EXAMPLE_IMPORTERS = import.meta.glob('../examples/sherlock-holmes.json', { import: 'default' });
 // TJ's private dev sample (his own Cosmos world) is git-ignored and never present in the public repo;
@@ -60,6 +67,9 @@ class AppStore {
    *  always ships, plus TJ's private dev sample when present locally. */
   readonly hasExampleWorld =
     Object.keys(PUBLIC_EXAMPLE_IMPORTERS).length > 0 || Object.keys(PRIVATE_SAMPLE_IMPORTERS).length > 0;
+  /** True only when TJ's private Cosmos sample is bundled (dev-only, never true in the public repo's
+   *  build). Gates a separate "Load Cosmos (private)" button distinct from the public example. */
+  readonly hasPrivateSample = Object.keys(PRIVATE_SAMPLE_IMPORTERS).length > 0;
 
   async init(): Promise<void> {
     this.loading = true;
@@ -205,6 +215,27 @@ class AppStore {
     }
     this.projects = await listProjects();
     await this.switchTo(EXAMPLE_PROJECT_ID);
+  }
+
+  /** Load/refresh TJ's private Cosmos sample at its own fixed id and switch to it. Entirely separate
+   *  from the public Sherlock demo above — repeated clicks upsert in place rather than duplicating.
+   *  Throws if this build doesn't have the private sample bundled (i.e. every build except TJ's own
+   *  local dev checkout with src/lib/sample/sample-project.json present). */
+  async loadPrivateSample(): Promise<void> {
+    const key = Object.keys(PRIVATE_SAMPLE_IMPORTERS)[0];
+    if (!key) throw new Error('No private sample is bundled in this build.');
+    const bundle = (await PRIVATE_SAMPLE_IMPORTERS[key]()) as unknown as ProjectBundle;
+    await importProjectBundle(bundle, { id: PRIVATE_EXAMPLE_PROJECT_ID });
+    // Force a stable, clearly-labeled name distinct from whatever the raw bundle/series title says,
+    // so this auto-refreshed snapshot never collides in the dropdown with a separately-imported
+    // working copy of the same data (they'd otherwise share bundle.name verbatim).
+    const rec = await getProject(PRIVATE_EXAMPLE_PROJECT_ID);
+    if (rec && rec.name !== PRIVATE_EXAMPLE_NAME) {
+      rec.name = PRIVATE_EXAMPLE_NAME;
+      await putProject(rec);
+    }
+    this.projects = await listProjects();
+    await this.switchTo(PRIVATE_EXAMPLE_PROJECT_ID);
   }
 
   /** Quick-capture (BUILD-SPEC §7): drop a note / character / world / idea into the active project

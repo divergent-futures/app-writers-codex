@@ -27,6 +27,25 @@
     busy = false;
   }
 
+  async function loadPrivate() {
+    busy = true;
+    try {
+      await app.loadPrivateSample();
+    } catch (err) {
+      alert('Could not load the private sample: ' + (err as Error).message);
+    }
+    busy = false;
+  }
+
+  async function removeCurrent() {
+    if (!app.active) return;
+    const name = app.active.name;
+    if (!confirm(`Delete "${name}"? This removes it from this device. This can't be undone here.`)) return;
+    busy = true;
+    await app.remove(app.active.id);
+    busy = false;
+  }
+
   async function onImportFile(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
@@ -53,7 +72,11 @@
   {#if app.hasExampleWorld}
     <button class="btn" onclick={loadSample} disabled={busy}>Load example</button>
   {/if}
+  {#if app.hasPrivateSample}
+    <button class="btn" onclick={loadPrivate} disabled={busy}>Load Cosmos (private)</button>
+  {/if}
   <button class="btn" onclick={() => fileInput.click()} disabled={busy}>Import…</button>
+  <button class="btn danger" onclick={removeCurrent} disabled={busy || !app.active}>Delete…</button>
   <input
     bind:this={fileInput}
     type="file"
@@ -65,4 +88,6 @@
 
 <style>
   .switcher { gap: 8px; }
+  .btn.danger { color: var(--bad); border-color: var(--bad); }
+  .btn.danger:hover { background: color-mix(in srgb, var(--bad) 15%, transparent); }
 </style>
