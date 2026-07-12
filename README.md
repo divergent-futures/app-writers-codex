@@ -2,7 +2,7 @@
 
 **A local-first, offline, installable writing & worldbuilding organizer** — external memory for
 authors, so a whole story world stays visible instead of held in one head. Genre-neutral: it ships
-empty, with a one-tap Science-Fiction example world to explore.
+empty, with a one-tap public-domain Sherlock Holmes example world to explore.
 
 > ▶ **Use it:** _codex.divergentfutures.co_ (coming soon)
 
@@ -13,6 +13,14 @@ empty, with a one-tap Science-Fiction example world to explore.
 - **Everything editable.** Characters, worlds, threads, the timeline spine, books, chapters,
   themes, faiths, and more — with prose drafting in the Write cockpit (editing lands next).
 
+## Bring your own story
+
+Writer's Codex ships empty on purpose — your story lives on your device, never in this repo. If
+you already have notes, an outline, or a story bible, **[AI-IMPORT-GUIDE.md](AI-IMPORT-GUIDE.md)**
+walks through converting them with your own AI assistant (Claude, ChatGPT, or similar) into a file
+the app's own Import button accepts — no manuscript prose or account required, just the structural
+stuff: characters, worlds, timeline, books.
+
 ## Or clone & run
 
 ```bash
@@ -22,8 +30,10 @@ npm run build      # static production build → dist/
 npm run check      # type-check
 ```
 
-`npm run build:sample` regenerates the bundled Science-Fiction example world from the reference
-data (build-time only; the manuscript prose is intentionally not shipped).
+`npm run build:sherlock` regenerates the bundled Sherlock Holmes example world from
+`sherlock-demo/` (build-time only). `npm run build:sample` is a local-only convenience for the
+maintainer's own private dev data and does nothing in a fresh checkout — see
+[AI-IMPORT-GUIDE.md](AI-IMPORT-GUIDE.md) to bring in your own story instead.
 
 ## Status
 
