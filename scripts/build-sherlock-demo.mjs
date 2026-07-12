@@ -21,8 +21,9 @@ const OUT_DIR = join(ROOT, 'src', 'lib', 'examples');
 const SCHEMA_VERSION = 1;
 // Bump whenever the example's shipped CONTENT changes (new entries, edits). A higher number than a
 // user's stored copy triggers an in-place refresh on next load — see app.svelte.ts reconcileExampleWorld.
-// v2 = added the Reading list + the Detective Fiction reference pack.
-const DEMO_VERSION = 2;
+// v2 = added the Reading list + the Detective Fiction reference pack (20 entries).
+// v3 = expanded the reference pack from 20 to 117 entries.
+const DEMO_VERSION = 3;
 
 const UA = 'WritersCodexDemoBuilder/1.0 (https://writers-codex.space-divergentfutures.workers.dev)';
 
