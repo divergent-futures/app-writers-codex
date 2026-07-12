@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/stores/app.svelte';
+  import { exportProjectToFile } from '../lib/export';
 
   let busy = $state(false);
   let fileInput: HTMLInputElement;
@@ -46,6 +47,17 @@
     busy = false;
   }
 
+  async function exportCurrent() {
+    if (!app.active) return;
+    busy = true;
+    try {
+      await exportProjectToFile(app.active.id);
+    } catch (err) {
+      alert('Export failed: ' + (err as Error).message);
+    }
+    busy = false;
+  }
+
   async function onImportFile(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
@@ -75,6 +87,7 @@
   {#if app.hasPrivateSample}
     <button class="btn" onclick={loadPrivate} disabled={busy}>Load Cosmos (private)</button>
   {/if}
+  <button class="btn" onclick={exportCurrent} disabled={busy || !app.active}>Export…</button>
   <button class="btn" onclick={() => fileInput.click()} disabled={busy}>Import…</button>
   <button class="btn danger" onclick={removeCurrent} disabled={busy || !app.active}>Delete…</button>
   <input

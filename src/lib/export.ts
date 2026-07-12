@@ -1,17 +1,21 @@
 /* Writer's Codex — export / import.
  *
  * The project bundle is the file the user OWNS — their backup, their portability, their
- * "sync via my own Dropbox/GitHub." A bundle is prose-inclusive (prose + worldbuilding markdown),
- * but keeps images out for now (images/.zip land in step 3/6, porting the prototype's zip writer).
+ * "sync via my own Dropbox/GitHub." A bundle is prose- and image-inclusive (prose + worldbuilding
+ * markdown, plus every entity photo as its already-downscaled-webp data URI — no zip needed since
+ * images.ts already stores them as data URIs in IndexedDB). Note: per-image captions aren't carried
+ * yet (db.ts's allImages() only exposes the URL, not the caption) — a follow-up if that's ever missed.
  */
 
 import { SCHEMA_VERSION, type ProjectData } from './schema';
 import { validate, type Warning } from './validate';
 import {
+  allImages,
   allProse,
   allWorldbuilding,
   getProject,
   listProjects,
+  putImage,
   putProject,
   putProse,
   putWorldbuilding,
@@ -26,6 +30,8 @@ export interface ProjectBundle {
   project: ProjectData;
   prose: Record<string, string>;
   worldbuilding: Record<string, string>;
+  /** entityId -> data URI (webp), e.g. "character:john" -> "data:image/webp;base64,...". */
+  images: Record<string, string>;
   /** Bundled example worlds carry a content version so a shipped content change can refresh an
    *  already-seeded copy in place (see app.svelte.ts reconcileExampleWorld). User exports omit it. */
   demoVersion?: number;
@@ -59,6 +65,10 @@ export async function buildProjectBundle(projectId: string): Promise<ProjectBund
     project: rec.data,
     prose: pick(await allProse(projectId), chapterIds),
     worldbuilding: pick(await allWorldbuilding(projectId), wbIds),
+    // Images can be attached to any entity type (characters, worlds, books, ...), not just the
+    // chapter/worldbuilding sets above, so — unlike prose/worldbuilding — these aren't pruned by
+    // an entity-id allowlist. A stray orphaned image riding along is harmless; losing photos isn't.
+    images: await allImages(projectId),
   };
 }
 
@@ -138,6 +148,7 @@ export async function importProjectBundle(bundle: ProjectBundle, opts?: { id?: s
   await putProject(rec);
   for (const [chapterId, md] of Object.entries(bundle.prose ?? {})) await putProse(id, chapterId, md);
   for (const [entityId, md] of Object.entries(bundle.worldbuilding ?? {})) await putWorldbuilding(id, entityId, md);
+  for (const [entityId, url] of Object.entries(bundle.images ?? {})) await putImage({ projectId: id, entityId, url });
   return { id, name: rec.name, warnings };
 }
 
