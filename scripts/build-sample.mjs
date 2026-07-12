@@ -47,8 +47,22 @@ function main() {
     }
   }
 
-  // GUARDRAIL: manuscript prose is NOT shipped.
+  // Manuscript prose: chapters[].bodyFile -> markdown text, keyed by chapter id (matches how the
+  // app stores/reads prose — see src/lib/export.ts's importProjectBundle). This is TJ's own private
+  // pipeline: gated by /src/lib/sample/ being git-ignored, and by the build-public.mjs guard that
+  // hides this folder from every public build — none of this ever reaches the public repo or site.
+  // Chapters that are still just the auto-generated "write the scene below" placeholder (nothing
+  // actually written yet) are skipped so an unwritten chapter doesn't masquerade as having content.
   const prose = {};
+  for (const ch of project.chapters ?? []) {
+    if (!ch.bodyFile) continue;
+    const bodyPath = join(SRC, ch.bodyFile);
+    if (!existsSync(bodyPath)) continue;
+    const raw = readFileSync(bodyPath, 'utf8');
+    const isStubOnly = /^\s*<!--[\s\S]*-->\s*$/.test(raw.trim());
+    if (isStubOnly || !raw.trim()) continue;
+    prose[ch.id] = raw;
+  }
 
   const bundle = {
     format: 'writers-codex-project',
@@ -82,7 +96,7 @@ function main() {
     `[build-sample] wrote sample-project.json — "${bundle.name}"`,
     `\n  collections:`,
     JSON.stringify(counts),
-    `\n  worldbuilding docs: ${Object.keys(worldbuilding).length}   prose: 0 (excluded by guardrail)`,
+    `\n  worldbuilding docs: ${Object.keys(worldbuilding).length}   prose: ${Object.keys(prose).length} chapter(s) with real content`,
   );
 }
 
