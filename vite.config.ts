@@ -15,6 +15,9 @@ export default defineConfig({
         // (and its optional demo) work fully offline.
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: 'index.html',
+        // Never let the app-shell fallback swallow API requests — /api/* must reach the network
+        // (and, on /api/auth/login, Cloudflare Access) rather than being served the cached SPA shell.
+        navigateFallbackDenylist: [/^\/api\//],
       },
       manifest: {
         name: "Writer's Codex",
