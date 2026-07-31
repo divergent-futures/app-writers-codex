@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { requireAuth } from './auth';
 import { handlePull, handlePush } from './sync';
 import { handleImageDelete, handleImageGet, handleImagePut } from './images';
+import { handleWeirHistory, handleWeirScore } from './weir';
 
 export interface Env {
   DB: D1Database;
@@ -55,6 +56,10 @@ app.post('/api/sync/push', requireAuth, handlePush);
 app.put('/api/images/:projectId/:entityId', requireAuth, handleImagePut);
 app.get('/api/images/:projectId/:entityId', requireAuth, handleImageGet);
 app.delete('/api/images/:projectId/:entityId', requireAuth, handleImageDelete);
+
+// Weir Matrix: store a scoring run (server recomputes total + verdict); read per-entity history.
+app.post('/api/weir/score', requireAuth, handleWeirScore);
+app.get('/api/weir/history', requireAuth, handleWeirHistory);
 
 // Unmatched routes: JSON 404 for the API; anything else falls back to static assets (defensive —
 // run_worker_first only routes /api/* here, but this keeps a stray non-API request serving the SPA).

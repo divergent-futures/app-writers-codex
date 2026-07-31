@@ -4,6 +4,7 @@
   import { sync } from './lib/sync.svelte';
   import Codex from './components/Codex.svelte';
   import SyncStatus from './components/SyncStatus.svelte';
+  import WeirWorkshop from './components/WeirWorkshop.svelte';
 
   let ready = $state(false);
 
@@ -18,6 +19,7 @@
 {#if ready}
   <Codex />
   <SyncStatus />
+  <WeirWorkshop />
 {:else}
   <div class="boot">Loading your library…</div>
 {/if}

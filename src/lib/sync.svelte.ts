@@ -15,24 +15,29 @@ import {
   deleteImage,
   deleteProse,
   deleteProject,
+  deleteWeirScore,
   deleteWorldbuilding,
   getImage,
   getMeta,
   getProject,
   getProse,
+  getWeirScore,
   getWorldbuilding,
   listOutbox,
   putImage,
   putProject,
   putProse,
+  putWeirScore,
   putWorldbuilding,
   seedOutboxAll,
   setMeta,
   setOutboxListener,
   setOutboxSuppressed,
   type OutboxEntry,
+  type WeirScoreRecord,
 } from './db';
 import type { ProjectData } from './schema';
+import type { GateResult, Verdict, WeirMode } from './weir/verdict';
 import { app } from './stores/app.svelte';
 
 const CURSOR_KEY = 'syncCursor';
@@ -181,8 +186,9 @@ class SyncEngine {
     const projects: unknown[] = [];
     const prose: unknown[] = [];
     const worldbuilding: unknown[] = [];
+    const weir: unknown[] = [];
     const images: OutboxEntry[] = [];
-    const dataKeys: string[] = []; // projects/prose/wb keys pushed in the JSON changeset
+    const dataKeys: string[] = []; // projects/prose/wb/weir keys pushed in the JSON changeset
 
     for (const e of entries) {
       if (e.store === 'projects') {
@@ -202,13 +208,37 @@ class SyncEngine {
         const md = e.op === 'delete' ? '' : await getWorldbuilding(e.projectId, e.entityKey!);
         worldbuilding.push({ project_id: e.projectId, entity_id: e.entityKey, markdown: md, updated_at: e.updatedAt, deleted: e.op === 'delete' });
         dataKeys.push(e.key);
+      } else if (e.store === 'weir') {
+        const rec = e.op === 'delete' ? undefined : await getWeirScore(e.entityKey!);
+        if (e.op === 'delete' || !rec) {
+          weir.push({ id: e.entityKey, project_id: e.projectId, updated_at: e.updatedAt, deleted: true });
+        } else {
+          weir.push({
+            id: rec.id,
+            project_id: rec.projectId,
+            mode: rec.mode,
+            target_type: rec.targetType ?? null,
+            target_id: rec.targetId ?? null,
+            title: rec.title ?? null,
+            tier: rec.tier ?? null,
+            axes: rec.axes,
+            total: rec.total,
+            gates: rec.gates,
+            verdict: rec.verdict,
+            fix: rec.fix ?? null,
+            created_at: rec.createdAt,
+            updated_at: e.updatedAt,
+            deleted: false,
+          });
+        }
+        dataKeys.push(e.key);
       } else if (e.store === 'images') {
         images.push(e); // bytes go through the dedicated endpoint below
       }
     }
 
-    if (projects.length || prose.length || worldbuilding.length) {
-      await apiJSON('/api/sync/push', { projects, prose, worldbuilding });
+    if (projects.length || prose.length || worldbuilding.length || weir.length) {
+      await apiJSON('/api/sync/push', { projects, prose, worldbuilding, weir });
       await clearOutboxKeys(dataKeys);
     }
 
@@ -267,6 +297,28 @@ class SyncEngine {
         if (im.deleted) await deleteImage(im.project_id, im.entity_id);
         else await this.pullImage(im);
       }
+      for (const s of res.weir ?? []) {
+        if (pending.has(`weir:${s.id}`)) continue;
+        if (s.deleted) await deleteWeirScore(s.project_id, s.id);
+        else {
+          const rec: WeirScoreRecord = {
+            id: s.id,
+            projectId: s.project_id,
+            mode: s.mode as WeirMode,
+            targetType: (s.target_type ?? undefined) as WeirScoreRecord['targetType'],
+            targetId: s.target_id ?? undefined,
+            title: s.title ?? undefined,
+            tier: s.tier ?? undefined,
+            axes: (s.axes ?? {}) as Record<string, number>,
+            total: s.total,
+            gates: (s.gates ?? {}) as Record<string, GateResult>,
+            verdict: s.verdict as Verdict,
+            fix: s.fix ?? undefined,
+            createdAt: s.created_at,
+          };
+          await putWeirScore(rec);
+        }
+      }
     } finally {
       setOutboxSuppressed(false);
     }
@@ -292,12 +344,29 @@ interface PullResponse {
   prose: Array<{ project_id: string; chapter_id: string; markdown: string; deleted: number | boolean }>;
   worldbuilding: Array<{ project_id: string; entity_id: string; markdown: string; deleted: number | boolean }>;
   images: ImageMeta[];
+  weir?: WeirMetaRow[];
 }
 interface ImageMeta {
   project_id: string;
   entity_id: string;
   r2_key: string;
   caption: string | null;
+  deleted: number | boolean;
+}
+interface WeirMetaRow {
+  id: string;
+  project_id: string;
+  mode: string;
+  target_type: string | null;
+  target_id: string | null;
+  title: string | null;
+  tier: string | null;
+  axes: unknown;
+  total: number;
+  gates: unknown;
+  verdict: string;
+  fix: string | null;
+  created_at: number;
   deleted: number | boolean;
 }
 

@@ -8,12 +8,14 @@
  *   - images         : image blobs, keyed [projectId, entityId]        (ports prototype wb_images)
  *   - packs          : bundled reference packs, keyed by id            (shared across projects)
  *   - meta           : app singletons (activeProjectId, settings)      (keyed by string)
+ *   - weir           : Weir Matrix scoring runs, keyed by id           (append-only history, v3)
  *
  * `idb` is isolated to this file so the store engine stays swappable.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { ProjectData, ReferencePack } from './schema';
+import type { GateResult, Verdict, WeirMode } from './weir/verdict';
 
 export interface ProjectRecord {
   id: string;
@@ -41,17 +43,35 @@ export interface ImageRecord {
   caption?: string;
 }
 
+/** One Weir Matrix scoring run (writers-codex-weir-module.md §9). Append-only: every run is kept,
+ *  never overwritten — the per-entity score history is the retention feature. */
+export interface WeirScoreRecord {
+  id: string;
+  projectId: string;
+  mode: WeirMode;
+  targetType?: 'prose' | 'worldbuilding' | 'character' | 'freeform';
+  targetId?: string;
+  title?: string;
+  tier?: string;
+  axes: Record<string, number>;
+  total: number;
+  gates: Record<string, GateResult>;
+  verdict: Verdict;
+  fix?: string;
+  createdAt: number;
+}
+
 /* Cloud-sync outbox (Phase 2). Every local mutation records a dirty marker here; the sync engine
  * (src/lib/sync.svelte.ts) drains it to the Worker API. Entries collapse by `key`, so repeated edits
  * to the same record queue only once. This is the ONLY seam the untouched editors/views need: because
  * they all mutate through the functions below, they enqueue automatically. */
-export type OutboxStore = 'projects' | 'prose' | 'worldbuilding' | 'images';
+export type OutboxStore = 'projects' | 'prose' | 'worldbuilding' | 'images' | 'weir';
 export interface OutboxEntry {
   key: string; // unique per record, e.g. "prose:alpha:ch1"
   store: OutboxStore;
   op: 'put' | 'delete';
   projectId: string;
-  entityKey?: string; // chapterId | entityId (absent for projects)
+  entityKey?: string; // chapterId | entityId | weir score id (absent for projects)
   updatedAt: number; // client write time — the LWW key sent to the server
 }
 
@@ -63,10 +83,11 @@ interface CodexDB extends DBSchema {
   packs: { key: string; value: ReferencePack & { id: string } };
   meta: { key: string; value: unknown };
   outbox: { key: string; value: OutboxEntry };
+  weir: { key: string; value: WeirScoreRecord };
 }
 
 const DB_NAME = 'writers-codex';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let _db: Promise<IDBPDatabase<CodexDB>> | null = null;
 
@@ -85,6 +106,8 @@ function db(): Promise<IDBPDatabase<CodexDB>> {
         if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
         // v2: the sync outbox
         if (!d.objectStoreNames.contains('outbox')) d.createObjectStore('outbox', { keyPath: 'key' });
+        // v3: Weir Matrix score history
+        if (!d.objectStoreNames.contains('weir')) d.createObjectStore('weir', { keyPath: 'id' });
       },
     });
   }
@@ -130,7 +153,7 @@ export async function clearOutboxKeys(keys: string[]): Promise<void> {
 export async function seedOutboxAll(): Promise<void> {
   const d = await db();
   const now = Date.now();
-  const tx = d.transaction(['projects', 'prose', 'worldbuilding', 'images', 'outbox'], 'readwrite');
+  const tx = d.transaction(['projects', 'prose', 'worldbuilding', 'images', 'weir', 'outbox'], 'readwrite');
   const box = tx.objectStore('outbox');
   for (const p of await tx.objectStore('projects').getAll())
     await box.put({ key: `projects:${p.id}`, store: 'projects', op: 'put', projectId: p.id, updatedAt: p.updatedAt || now });
@@ -140,6 +163,8 @@ export async function seedOutboxAll(): Promise<void> {
     await box.put({ key: `worldbuilding:${r.projectId}:${r.entityId}`, store: 'worldbuilding', op: 'put', projectId: r.projectId, entityKey: r.entityId, updatedAt: now });
   for (const r of await tx.objectStore('images').getAll())
     await box.put({ key: `images:${r.projectId}:${r.entityId}`, store: 'images', op: 'put', projectId: r.projectId, entityKey: r.entityId, updatedAt: now });
+  for (const r of await tx.objectStore('weir').getAll())
+    await box.put({ key: `weir:${r.id}`, store: 'weir', op: 'put', projectId: r.projectId, entityKey: r.id, updatedAt: now });
   await tx.done;
 }
 
@@ -162,12 +187,21 @@ export async function putProject(rec: ProjectRecord): Promise<void> {
 export async function deleteProject(id: string): Promise<void> {
   const d = await db();
   await d.delete('projects', id);
-  // cascade: drop this project's prose / worldbuilding / images
+  // cascade: drop this project's prose / worldbuilding / images / weir scores
   for (const store of ['prose', 'worldbuilding', 'images'] as const) {
     const tx = d.transaction(store, 'readwrite');
     let cursor = await tx.store.openCursor();
     while (cursor) {
       if ((cursor.key as [string, string])[0] === id) await cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+  {
+    const tx = d.transaction('weir', 'readwrite');
+    let cursor = await tx.store.openCursor();
+    while (cursor) {
+      if (cursor.value.projectId === id) await cursor.delete();
       cursor = await cursor.continue();
     }
     await tx.done;
@@ -261,6 +295,35 @@ export async function allImages(projectId: string): Promise<Record<string, strin
     cursor = await cursor.continue();
   }
   return out;
+}
+
+/* ---------------- Weir Matrix scores (v3) ---------------- */
+
+export async function getWeirScore(id: string): Promise<WeirScoreRecord | undefined> {
+  return (await db()).get('weir', id);
+}
+
+export async function putWeirScore(rec: WeirScoreRecord): Promise<void> {
+  await (await db()).put('weir', rec);
+  await enqueue({ key: `weir:${rec.id}`, store: 'weir', op: 'put', projectId: rec.projectId, entityKey: rec.id });
+}
+
+export async function deleteWeirScore(projectId: string, id: string): Promise<void> {
+  await (await db()).delete('weir', id);
+  await enqueue({ key: `weir:${id}`, store: 'weir', op: 'delete', projectId, entityKey: id });
+}
+
+/** Score history, newest first — for one entity when targetId is given, else the whole project. */
+export async function listWeirScores(projectId: string, targetId?: string): Promise<WeirScoreRecord[]> {
+  const out: WeirScoreRecord[] = [];
+  const tx = (await db()).transaction('weir', 'readonly');
+  let cursor = await tx.store.openCursor();
+  while (cursor) {
+    const rec = cursor.value;
+    if (rec.projectId === projectId && (!targetId || rec.targetId === targetId)) out.push(rec);
+    cursor = await cursor.continue();
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /* ---------------- reference packs (shared) ---------------- */
