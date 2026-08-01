@@ -56,6 +56,18 @@ interface WeirIn {
 
 const del = (v: boolean | number | undefined): number => (v ? 1 : 0);
 
+/** Normalise a client timestamp for storage.
+ *
+ *  This must NOT be `x | 0`. Bitwise ops in JS coerce to *signed 32-bit*, and a millisecond epoch
+ *  needs 41 bits — `Date.now() | 0` gives a negative number that wraps roughly every 49.7 days. Since
+ *  every upsert below is guarded by `WHERE excluded.updated_at >= <table>.updated_at`, a truncated
+ *  timestamp makes last-write-wins effectively random and silently drops real edits. Keep full
+ *  precision; D1 INTEGER columns are 64-bit and hold an epoch fine. */
+const ts = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.floor(n) : 0;
+};
+
 /** Atomically claim the next per-user revision. Shared by push and the image endpoints so every
  *  write — data or image — advances the same cursor and shows up on the peer's next pull. */
 export async function nextRev(db: D1Database, userId: string): Promise<number> {
@@ -151,7 +163,7 @@ export async function handlePush(c: Ctx): Promise<Response> {
              deleted=excluded.deleted, rev=excluded.rev
            WHERE excluded.updated_at >= projects.updated_at`,
         )
-        .bind(userId, p.id, p.name ?? '', JSON.stringify(p.data ?? {}), p.updated_at | 0, del(p.deleted), rev),
+        .bind(userId, p.id, p.name ?? '', JSON.stringify(p.data ?? {}), ts(p.updated_at), del(p.deleted), rev),
     );
   }
 
@@ -165,7 +177,7 @@ export async function handlePush(c: Ctx): Promise<Response> {
              markdown=excluded.markdown, updated_at=excluded.updated_at, deleted=excluded.deleted, rev=excluded.rev
            WHERE excluded.updated_at >= prose.updated_at`,
         )
-        .bind(userId, p.project_id, p.chapter_id, p.markdown ?? '', p.updated_at | 0, del(p.deleted), rev),
+        .bind(userId, p.project_id, p.chapter_id, p.markdown ?? '', ts(p.updated_at), del(p.deleted), rev),
     );
   }
 
@@ -179,7 +191,7 @@ export async function handlePush(c: Ctx): Promise<Response> {
              markdown=excluded.markdown, updated_at=excluded.updated_at, deleted=excluded.deleted, rev=excluded.rev
            WHERE excluded.updated_at >= worldbuilding.updated_at`,
         )
-        .bind(userId, w.project_id, w.entity_id, w.markdown ?? '', w.updated_at | 0, del(w.deleted), rev),
+        .bind(userId, w.project_id, w.entity_id, w.markdown ?? '', ts(w.updated_at), del(w.deleted), rev),
     );
   }
 
@@ -214,8 +226,8 @@ export async function handlePush(c: Ctx): Promise<Response> {
           JSON.stringify(s.gates ?? {}),
           s.verdict ?? 'CUT',
           s.fix ?? null,
-          Number.isFinite(s.created_at) ? Number(s.created_at) : s.updated_at | 0,
-          s.updated_at | 0,
+          s.created_at != null ? ts(s.created_at) : ts(s.updated_at),
+          ts(s.updated_at),
           del(s.deleted),
           rev,
         ),
