@@ -170,9 +170,10 @@
 {/if}
 
 <style>
+  /* Right-hand corner: the sync pill owns bottom-left. */
   .weir-fab {
     position: fixed;
-    left: 1rem;
+    right: 1rem;
     bottom: 1rem;
     z-index: 40;
     padding: 0.4rem 0.7rem;
@@ -184,7 +185,7 @@
   }
   .panel {
     position: fixed;
-    left: 1rem;
+    right: 1rem;
     bottom: 3.4rem;
     z-index: 41;
     width: min(30rem, calc(100vw - 2rem));

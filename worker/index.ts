@@ -1,7 +1,8 @@
 /* Writer's Codex — Worker API (Phase 2, cloud sync).
  *
  * A thin Hono router mounted at /api/*. It fronts D1 (structured data + markdown) and R2 (image
- * bytes), gated by Cloudflare Access. Everything else on the hostname is served as static assets
+ * bytes), gated by requireAuth (shared SYNC_KEY or Cloudflare Access — see auth.ts). Everything else
+ * on the hostname is served as static assets
  * (the Svelte PWA) — see wrangler.jsonc `run_worker_first: ["/api/*"]`, so this Worker only ever
  * sees /api/* requests; the `*` fallback below is defensive.
  *
@@ -25,6 +26,12 @@ export interface Env {
   ACCESS_TEAM_DOMAIN?: string;
   /** Access application AUD tag (prod only). */
   ACCESS_AUD?: string;
+  /** Single-user shared secret (set with `wrangler secret put SYNC_KEY`, never in wrangler.jsonc).
+   *  When set, a client presenting it as `Authorization: Bearer <key>` is the owner. Min 24 chars. */
+  SYNC_KEY?: string;
+  /** Identity assigned to SYNC_KEY holders; the userId is derived from it, so changing it after data
+   *  exists strands that data under the old userId. Defaults to owner@writers-codex.local. */
+  SYNC_EMAIL?: string;
   /** Dev-only identity bypass for `wrangler dev` (no Access locally). Never set in prod. */
   DEV_USER?: string;
 }

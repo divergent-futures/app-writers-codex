@@ -1,13 +1,22 @@
 /* Writer's Codex — Worker auth.
  *
- * Identity comes from Cloudflare Access. After a user completes the one-time-PIN login, Access sets a
- * domain cookie (CF_Authorization) and, on requests that pass through an Access-protected path,
- * injects the `Cf-Access-Jwt-Assertion` header. Either carries a signed RS256 JWT. We verify it
- * against the team's public JWKS and derive a stable userId (sha256 of the verified email).
+ * Three identity paths, tried in this order by `resolveIdentity`:
  *
- * This code is agnostic to HOW Access is scoped (whole hostname, or just a login path): as long as a
- * valid Access JWT reaches the Worker, sync is authorized. In `wrangler dev` there is no Access, so
- * `env.DEV_USER` short-circuits verification with a fixed local identity. DEV_USER is never set in prod.
+ *   1. DEV_USER      — local `wrangler dev` bypass. Never set in production.
+ *   2. SYNC_KEY      — single-user shared secret. The owner types one long random key into the app;
+ *                      the client stores it in IndexedDB and sends it on every request as
+ *                      `Authorization: Bearer <key>` (or `X-Sync-Key`). Compared in constant time.
+ *                      Identity is the fixed SYNC_EMAIL (default owner@writers-codex.local), so the
+ *                      derived userId is stable across devices — that is what makes it one library.
+ *   3. Cloudflare Access — the original path, kept intact. After a one-time-PIN login Access sets a
+ *                      domain cookie (CF_Authorization) and injects `Cf-Access-Jwt-Assertion`; either
+ *                      carries a signed RS256 JWT, verified against the team's public JWKS, and the
+ *                      userId is sha256 of the verified email.
+ *
+ * SYNC_KEY exists because Access requires onboarding Zero Trust on the account; for a single-author
+ * private codex over HTTPS a long random secret is equivalent security with no dependency. Set it with
+ * `wrangler secret put SYNC_KEY` — never in wrangler.jsonc, which shares an origin with the public repo.
+ * If SYNC_KEY is unset the branch is skipped entirely and Access behaviour is unchanged.
  */
 
 import type { Context, Next } from 'hono';
@@ -61,6 +70,32 @@ async function getKeys(teamDomain: string): Promise<Map<string, Promise<CryptoKe
   }
   jwksCache = { byKid, fetchedAt: now };
   return byKid;
+}
+
+/* ---------- shared-key auth ---------- */
+
+/** Minimum key length we will accept — refuses a short/guessable SYNC_KEY outright. */
+const MIN_KEY_LEN = 24;
+
+/** Constant-time string compare. Length is allowed to leak; the bytes are not. */
+function timingSafeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.length !== eb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.length; i++) diff |= ea[i] ^ eb[i];
+  return diff === 0;
+}
+
+/** Pull the shared key off the request: `Authorization: Bearer <key>` or `X-Sync-Key: <key>`. */
+function readSyncKey(c: Ctx): string | null {
+  const auth = c.req.header('Authorization');
+  if (auth) {
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (m) return m[1].trim();
+  }
+  const x = c.req.header('X-Sync-Key');
+  return x ? x.trim() : null;
 }
 
 /* ---------- token extraction + verification ---------- */
@@ -129,6 +164,19 @@ export async function resolveIdentity(c: Ctx): Promise<boolean> {
     c.set('userId', await userIdFromEmail(c.env.DEV_USER));
     return true;
   }
+
+  // Shared-secret path (single-user sync). Skipped entirely when SYNC_KEY is unset.
+  const secret = c.env.SYNC_KEY;
+  if (secret && secret.length >= MIN_KEY_LEN) {
+    const provided = readSyncKey(c);
+    if (provided && timingSafeEqual(provided, secret)) {
+      const email = c.env.SYNC_EMAIL || 'owner@writers-codex.local';
+      c.set('email', email);
+      c.set('userId', await userIdFromEmail(email));
+      return true;
+    }
+  }
+
   const token = readToken(c);
   if (!token) return false;
   const email = await verify(token, c.env);

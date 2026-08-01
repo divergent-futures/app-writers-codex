@@ -42,17 +42,34 @@ import { app } from './stores/app.svelte';
 
 const CURSOR_KEY = 'syncCursor';
 const SEEDED_KEY = 'syncSeeded';
+const KEY_KEY = 'syncKey';
 const POLL_MS = 30_000;
 const PUSH_DEBOUNCE_MS = 1500;
 
 export type SyncStatus = 'off' | 'checking' | 'syncing' | 'synced' | 'offline' | 'error';
+
+/* ---------------- auth ----------------
+ *
+ * Single-user sync uses a shared key: one long random secret held as a Worker secret (SYNC_KEY) and
+ * typed once per device into the sync pill. It lives in IndexedDB meta alongside the cursor, and rides
+ * every request as `Authorization: Bearer <key>`. `credentials: 'include'` stays on all of these so the
+ * Cloudflare Access cookie path keeps working unchanged for anyone using that instead.
+ */
+
+let syncKey: string | null = null;
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...(extra ?? {}) };
+  if (syncKey) h['Authorization'] = `Bearer ${syncKey}`;
+  return h;
+}
 
 /* ---------------- API helpers ---------------- */
 
 async function apiJSON<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
     credentials: 'include',
   });
@@ -80,9 +97,12 @@ class SyncEngine {
   email = $state<string | null>(null);
   pending = $state(0);
   lastSyncedAt = $state<number | null>(null);
+  /** True once a sync key is stored on this device — drives the pill's "Connect"/"Connected" copy. */
+  hasKey = $state(false);
 
   private cursor = 0;
   private started = false;
+  private triggersWired = false;
   private inFlight: Promise<void> | null = null;
   private debounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -92,6 +112,11 @@ class SyncEngine {
     this.started = true;
     this.status = 'checking';
 
+    // Load the device's stored sync key before the first auth probe, so a returning device is
+    // signed in immediately with no interaction.
+    syncKey = (await getMeta<string>(KEY_KEY)) ?? null;
+    this.hasKey = !!syncKey;
+
     const me = await this.checkAuth();
     if (!me) {
       this.status = 'off';
@@ -99,10 +124,17 @@ class SyncEngine {
       this.wireTriggers();
       return;
     }
+    await this.onSignedIn(me);
+  }
+
+  /** Shared tail of start() and setKey(): record identity, seed the outbox once, then sync. */
+  private async onSignedIn(me: { userId: string; email: string }): Promise<void> {
     this.signedIn = true;
     this.email = me.email;
     this.cursor = (await getMeta<number>(CURSOR_KEY)) ?? 0;
 
+    // First successful connection on a device pushes everything it already holds, so the local
+    // library becomes the seed of the cloud copy rather than being replaced by it.
     if (!(await getMeta<boolean>(SEEDED_KEY))) {
       await seedOutboxAll();
       await setMeta(SEEDED_KEY, true);
@@ -112,6 +144,8 @@ class SyncEngine {
   }
 
   private wireTriggers(): void {
+    if (this.triggersWired) return; // start() and setKey() can both reach here
+    this.triggersWired = true;
     setOutboxListener(() => this.nudge());
     addEventListener('online', () => this.syncNow());
     addEventListener('focus', () => this.syncNow());
@@ -132,7 +166,7 @@ class SyncEngine {
 
   private async checkAuth(): Promise<{ userId: string; email: string } | null> {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const res = await fetch('/api/auth/me', { headers: authHeaders(), credentials: 'include' });
       if (!res.ok) return null;
       return (await res.json()) as { userId: string; email: string };
     } catch {
@@ -140,7 +174,50 @@ class SyncEngine {
     }
   }
 
-  /** Full-page navigation that lets Cloudflare Access run its one-time-PIN flow, then returns here. */
+  /** Save a sync key on this device and connect. Verified against the server BEFORE it is stored, so a
+   *  mistyped key never gets persisted; on rejection the previous working key (if any) is restored. */
+  async setKey(key: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const k = key.trim();
+    if (!k) return { ok: false, error: 'Paste your sync key first.' };
+
+    const previous = syncKey;
+    syncKey = k;
+    this.status = 'checking';
+
+    let me: { userId: string; email: string } | null = null;
+    try {
+      me = await this.checkAuth();
+    } catch {
+      me = null;
+    }
+    if (!me) {
+      syncKey = previous;
+      this.status = 'off';
+      return {
+        ok: false,
+        error: navigator.onLine
+          ? 'That key was rejected. Check for a stray space at either end and try again.'
+          : "You're offline — connect to the internet and try again.",
+      };
+    }
+
+    await setMeta(KEY_KEY, k);
+    this.hasKey = true;
+    await this.onSignedIn(me);
+    return { ok: true };
+  }
+
+  /** Forget the key on this device. Local data is untouched; the app just goes back to local-only. */
+  async forgetKey(): Promise<void> {
+    syncKey = null;
+    this.hasKey = false;
+    this.signedIn = false;
+    this.email = null;
+    this.status = 'off';
+    await setMeta(KEY_KEY, null);
+  }
+
+  /** Cloudflare Access fallback: full-page navigation that runs the one-time-PIN flow, then returns. */
   signIn(): void {
     location.href = `/api/auth/login?redirect=${enc(location.pathname + location.search)}`;
   }
@@ -251,7 +328,7 @@ class SyncEngine {
   private async pushImage(e: OutboxEntry): Promise<void> {
     const path = `/api/images/${enc(e.projectId)}/${enc(e.entityKey!)}`;
     if (e.op === 'delete') {
-      const res = await fetch(path, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(path, { method: 'DELETE', headers: authHeaders(), credentials: 'include' });
       if (res.status === 401) throw new AuthError();
       return;
     }
@@ -260,7 +337,7 @@ class SyncEngine {
     const blob = await (await fetch(rec.url)).blob(); // data URI → bytes
     const res = await fetch(`${path}${rec.caption ? `?caption=${enc(rec.caption)}` : ''}`, {
       method: 'PUT',
-      headers: { 'Content-Type': blob.type || 'image/webp' },
+      headers: authHeaders({ 'Content-Type': blob.type || 'image/webp' }),
       body: blob,
       credentials: 'include',
     });
@@ -329,7 +406,10 @@ class SyncEngine {
   }
 
   private async pullImage(im: ImageMeta): Promise<void> {
-    const res = await fetch(`/api/images/${enc(im.project_id)}/${enc(im.entity_id)}`, { credentials: 'include' });
+    const res = await fetch(`/api/images/${enc(im.project_id)}/${enc(im.entity_id)}`, {
+      headers: authHeaders(),
+      credentials: 'include',
+    });
     if (!res.ok) return; // missing bytes — skip, metadata will retry next pull
     const dataUri = await blobToDataUri(await res.blob());
     await putImage({ projectId: im.project_id, entityId: im.entity_id, url: dataUri, caption: im.caption ?? undefined });
