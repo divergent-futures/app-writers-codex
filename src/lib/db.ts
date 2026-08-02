@@ -39,7 +39,11 @@ export interface WorldbuildingRecord {
 export interface ImageRecord {
   projectId: string;
   entityId: string; // e.g. "character:john" (the prototype's slot key)
-  url: string; // data URI (downscaled webp), like the prototype's image layer
+  url: string; // 640px webp data URI — the thumbnail shown in slots; syncs to every device
+  /** Full-size copy (webp, ≤2000px long edge) held as a Blob. Absent when the original was already
+   *  small enough to need no second copy, or when this device has not downloaded it yet — it is
+   *  fetched on first view rather than on sync, so browsing stays cheap. See lib/images.ts. */
+  full?: Blob;
   caption?: string;
 }
 
@@ -278,6 +282,16 @@ export async function getImage(projectId: string, entityId: string): Promise<Ima
 export async function putImage(rec: ImageRecord): Promise<void> {
   await (await db()).put('images', rec);
   await enqueue({ key: `images:${rec.projectId}:${rec.entityId}`, store: 'images', op: 'put', projectId: rec.projectId, entityKey: rec.entityId });
+}
+
+/** Attach a full-size copy that was downloaded from the cloud, not created here.
+ *  Deliberately does NOT enqueue: this device is caching what the server already holds, and queuing
+ *  it would push the same bytes straight back up on the next sync, forever. */
+export async function putImageFull(projectId: string, entityId: string, full: Blob): Promise<void> {
+  const d = await db();
+  const rec = await d.get('images', [projectId, entityId]);
+  if (!rec) return; // thumbnail gone (photo removed mid-download) — nothing to attach it to
+  await d.put('images', { ...rec, full });
 }
 
 export async function deleteImage(projectId: string, entityId: string): Promise<void> {

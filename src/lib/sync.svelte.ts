@@ -173,6 +173,9 @@ class SyncEngine {
   lastError = $state<string | null>(null);
   /** Records too large for the server to accept. They stay on this device and are skipped. */
   blocked = $state<BlockedRecord[]>([]);
+  /** True when the deployment has no photo storage (R2) yet. Text still syncs normally; photos wait
+   *  in the queue and go up on their own once it is enabled. Deliberately NOT an error state. */
+  photosUnavailable = $state(false);
 
   private cursor = 0;
   private started = false;
@@ -472,15 +475,21 @@ class SyncEngine {
       }
     }
 
+    let photosOff = false;
     for (const e of images) {
       try {
-        await this.pushImage(e);
-        await clearOutboxKeys([e.key]);
+        const outcome = await this.pushImage(e);
+        if (outcome === 'sent') await clearOutboxKeys([e.key]);
+        // 'unavailable' means the deployment has no photo storage yet. Leave the entry queued and
+        // say nothing: the photo is safe on this device and uploads by itself the moment R2 is
+        // switched on. Treating it as an error would put a permanent red badge on a working app.
+        else photosOff = true;
       } catch (err) {
         if (err instanceof AuthError) throw err;
         if (!firstError) firstError = err;
       }
     }
+    this.photosUnavailable = photosOff;
 
     if (firstError) throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
@@ -508,15 +517,20 @@ class SyncEngine {
     await setMeta(BLOCKED_KEY, $state.snapshot(this.blocked));
   }
 
-  private async pushImage(e: OutboxEntry): Promise<void> {
+  /** Returns 'sent' when the server took it, 'unavailable' when this deployment has no photo storage
+   *  yet (503). Throws for anything genuinely wrong. Uploads the thumbnail first, because that is
+   *  the copy other devices need; the full size follows and is allowed to fail on its own without
+   *  costing the thumbnail, since a photo you can see small beats a photo you cannot see at all. */
+  private async pushImage(e: OutboxEntry): Promise<'sent' | 'unavailable'> {
     const path = `/api/images/${enc(e.projectId)}/${enc(e.entityKey!)}`;
     if (e.op === 'delete') {
       const res = await fetch(path, { method: 'DELETE', headers: authHeaders(), credentials: 'include' });
       if (res.status === 401) throw new AuthError();
-      return;
+      if (res.status === 503) return 'unavailable';
+      return 'sent';
     }
     const rec = await getImage(e.projectId, e.entityKey!);
-    if (!rec) return; // gone locally before push — nothing to upload
+    if (!rec) return 'sent'; // gone locally before push — nothing to upload
     const blob = await (await fetch(rec.url)).blob(); // data URI → bytes
     const res = await fetch(`${path}${rec.caption ? `?caption=${enc(rec.caption)}` : ''}`, {
       method: 'PUT',
@@ -525,7 +539,20 @@ class SyncEngine {
       credentials: 'include',
     });
     if (res.status === 401) throw new AuthError();
+    if (res.status === 503) return 'unavailable';
     if (!res.ok) throw new Error(`image upload → ${res.status}`);
+
+    if (rec.full) {
+      const full = await fetch(`${path}?variant=full`, {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': rec.full.type || 'image/webp' }),
+        body: rec.full,
+        credentials: 'include',
+      });
+      if (full.status === 401) throw new AuthError();
+      if (!full.ok && full.status !== 503) throw new Error(`full-size image upload → ${full.status}`);
+    }
+    return 'sent';
   }
 
   /* -------- pull -------- */
@@ -588,6 +615,9 @@ class SyncEngine {
     await app.syncReload();
   }
 
+  /** Thumbnail only, on purpose. Pulling every full-size copy would turn one sync into tens of
+   *  megabytes over mobile data to show pictures nobody has asked to look at yet. The full copy is
+   *  fetched by fetchFullImageBytes() the first time the photo is actually opened. */
   private async pullImage(im: ImageMeta): Promise<void> {
     const res = await fetch(`/api/images/${enc(im.project_id)}/${enc(im.entity_id)}`, {
       headers: authHeaders(),
@@ -646,3 +676,25 @@ interface WeirMetaRow {
 }
 
 export const sync = new SyncEngine();
+
+/** Fetch one photo's full-size copy on demand — called by lib/images.ts when a photo is opened.
+ *
+ * Returns null for every ordinary "there isn't one": no key on this device, photo storage not
+ * enabled yet (503), the original was small enough that no full copy was ever made (404), or the
+ * network is down. All of those mean the same thing to the caller — keep showing the thumbnail —
+ * so none of them throw. The caller is a click on a picture, not a sync cycle; it must never be
+ * able to put the app into an error state. */
+export async function fetchFullImageBytes(projectId: string, entityId: string): Promise<Blob | null> {
+  if (!syncKey) return null; // never connected on this device — there is nothing in the cloud to ask
+  try {
+    const res = await fetch(`/api/images/${enc(projectId)}/${enc(entityId)}?variant=full`, {
+      headers: authHeaders(),
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return blob.size ? blob : null;
+  } catch {
+    return null;
+  }
+}

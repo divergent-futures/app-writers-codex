@@ -19,9 +19,15 @@
       "database_id": "f7eed447-f63a-4727-8377-2416258eea42",
       "migrations_dir": "migrations"
     }
-  ]
-  // R2 (photo sync) is DISABLED until the account has R2 enabled (needs a payment card on file) and
-  // the bucket exists — binding a nonexistent bucket fails the whole deploy. To enable: create the
-  // bucket (`npx wrangler r2 bucket create writers-codex-images`), then restore:
-  // "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "writers-codex-images" }]
+  ],
+  // Photo storage. Binding a bucket that does not exist fails the WHOLE deploy, so the bucket has to
+  // be created before the first deploy that carries this line:
+  //   npx wrangler r2 bucket create writers-codex-images
+  // Photos live here (a 640px thumbnail and a 2000px full size per entity); D1 holds only the
+  // metadata row that tells other devices a photo exists. See worker/images.ts.
+  //
+  // ONE binding only. `wrangler r2 bucket create` offers to add a second entry named after the
+  // bucket (writers_codex_images); that was declined and removed. worker/index.ts reads c.env.IMAGES,
+  // so a second binding to the same bucket would be dead weight that future readers have to puzzle out.
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "writers-codex-images" }]
 }

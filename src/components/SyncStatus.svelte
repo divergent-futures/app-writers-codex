@@ -140,6 +140,13 @@
           This does not stop anything else syncing.
         </div>
       {/if}
+      {#if sync.photosUnavailable}
+        <div class="line blocked">
+          <strong>Photos are waiting to upload.</strong>
+          Photo storage is not switched on for this site yet. Your photos are safe on this device and
+          will upload by themselves once it is. Everything else is syncing normally.
+        </div>
+      {/if}
       <div class="row">
         <button class="go" type="button" onclick={() => sync.syncNow()} disabled={sync.status === 'syncing'}>
           Sync now
