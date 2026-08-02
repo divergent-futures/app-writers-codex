@@ -1,11 +1,18 @@
 <script lang="ts">
-  /* Cloud-sync status pill (Phase 2). Self-contained, mounted once at the app root next to <Codex>.
+  /* Cloud-sync status (Phase 2). Self-contained, mounted once at the app root next to <Codex>.
    * Does not touch any existing view/editor.
    *
-   * Signed out, it opens a small panel to paste the sync key — one long random secret, the same on
-   * every device, entered once per browser and then remembered. Signed in, it collapses back to the
-   * status pill. The Cloudflare Access one-time-PIN flow is still available underneath for anyone
-   * running that setup instead. */
+   * WHY THIS IS LOUD WHEN DISCONNECTED
+   * This used to be a 12px pill in the extreme bottom-left corner, dark on dark. On a device that had
+   * never been connected, the entire library silently wasn't there and nothing on screen said so —
+   * you had to already know to look in that corner. A device with no key now gets a full-width bar
+   * across the top of the app that cannot be missed, and the key form opens as a centred dialog
+   * rather than a small popover glued to the corner.
+   *
+   * Once connected it collapses back to the quiet corner pill, which is the right weight for a thing
+   * that normally just says "Synced". Clicking the pill opens the details panel — status, what failed
+   * in the server's own words, and anything too large to sync.
+   */
   import { sync } from '../lib/sync.svelte';
 
   const LABEL: Record<string, string> = {
@@ -14,15 +21,27 @@
     syncing: 'Syncing…',
     synced: 'Synced',
     offline: 'Offline',
-    error: 'Sync error',
+    error: 'Sync problem',
   };
 
-  let showConnect = $derived(sync.status === 'off' && !sync.signedIn);
+  /** Disconnected = no key stored on this device. That is the case the banner exists for. */
+  let disconnected = $derived(!sync.hasKey && !sync.signedIn);
 
-  let open = $state(false);
+  let showForm = $state(false);
+  let showDetails = $state(false);
   let keyInput = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
+
+  /* Push the app down so the banner never covers the first row of the interface. Cleaned up the
+   * moment the device connects. */
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.style.paddingTop = disconnected ? '46px' : '';
+    return () => {
+      document.body.style.paddingTop = '';
+    };
+  });
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -33,16 +52,39 @@
     busy = false;
     if (r.ok) {
       keyInput = '';
-      open = false;
+      showForm = false;
     } else {
       error = r.error;
     }
   }
+
+  function ago(t: number | null): string {
+    if (!t) return 'not yet';
+    const s = Math.round((Date.now() - t) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    return `${Math.round(s / 3600)} h ago`;
+  }
 </script>
 
-<div class="wrap">
-  {#if open && showConnect}
-    <form class="panel" onsubmit={submit}>
+{#if disconnected}
+  <!-- Unmissable, because the alternative is a writer staring at a library that looks empty. -->
+  <div class="banner" role="status">
+    <span class="warn" aria-hidden="true">●</span>
+    <span class="banner-text">
+      <strong>This device isn't connected to your library yet.</strong>
+      Your books live in the cloud — connect once and they appear here.
+    </span>
+    <button class="banner-go" type="button" onclick={() => (showForm = true)}>Connect this device</button>
+  </div>
+{/if}
+
+{#if showForm}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="scrim" onclick={() => { showForm = false; error = null; }}></div>
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="Connect this device">
+    <form onsubmit={submit}>
       <div class="title">Connect this device</div>
       <p class="blurb">
         Paste your sync key. It's the same key on every device — that's what makes them one library.
@@ -64,24 +106,60 @@
         <button class="go" type="submit" disabled={busy || !keyInput.trim()}>
           {busy ? 'Checking…' : 'Connect'}
         </button>
-        <button class="ghost" type="button" onclick={() => { open = false; error = null; }}>Cancel</button>
+        <button class="ghost" type="button" onclick={() => { showForm = false; error = null; }}>Cancel</button>
       </div>
       <button class="link" type="button" onclick={() => sync.signIn()}>
         Or sign in with Cloudflare Access
       </button>
     </form>
+  </div>
+{/if}
+
+<div class="wrap">
+  {#if showDetails && !disconnected}
+    <div class="details">
+      <div class="title">
+        {LABEL[sync.status] ?? 'Sync'}
+        <button class="x" type="button" onclick={() => (showDetails = false)} aria-label="Close">×</button>
+      </div>
+      <div class="line">Last synced: {ago(sync.lastSyncedAt)}</div>
+      {#if sync.pending > 0}
+        <div class="line">{sync.pending} change{sync.pending === 1 ? '' : 's'} waiting to upload.</div>
+      {/if}
+      {#if sync.lastError}
+        <div class="err">{sync.lastError}</div>
+      {/if}
+      {#if sync.blocked.length}
+        <div class="line blocked">
+          <strong>Too large to sync — kept on this device only:</strong>
+          <ul>
+            {#each sync.blocked as b (b.key)}
+              <li>{b.label} <span class="dim">({Math.round(b.bytes / 1024).toLocaleString('en-GB')} KB)</span></li>
+            {/each}
+          </ul>
+          This does not stop anything else syncing.
+        </div>
+      {/if}
+      <div class="row">
+        <button class="go" type="button" onclick={() => sync.syncNow()} disabled={sync.status === 'syncing'}>
+          Sync now
+        </button>
+        <button class="ghost" type="button" onclick={() => { sync.forgetKey(); showDetails = false; }}>
+          Disconnect
+        </button>
+      </div>
+    </div>
   {/if}
 
-  {#if showConnect}
-    <button class="pill signin" onclick={() => (open = !open)} title="Connect this device to sync">
+  {#if disconnected}
+    <button class="pill signin" onclick={() => (showForm = true)} title="Connect this device to sync">
       <span class="dot off"></span> Connect sync
     </button>
   {:else}
     <button
       class="pill"
-      onclick={() => sync.syncNow()}
+      onclick={() => (showDetails = !showDetails)}
       title={sync.email ? `Signed in as ${sync.email}` : 'Sync'}
-      disabled={sync.status === 'syncing'}
     >
       <span class="dot {sync.status}"></span>
       {LABEL[sync.status] ?? 'Sync'}
@@ -91,6 +169,92 @@
 </div>
 
 <style>
+  /* ---- disconnected banner ---- */
+  .banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    box-sizing: border-box;
+    background: linear-gradient(180deg, #2a3550, #1d2436);
+    border-bottom: 1px solid var(--accent, #6ea8fe);
+    color: var(--fg, #e6e9ef);
+    font-size: 13px;
+    line-height: 1.35;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  }
+  .banner .warn {
+    color: #d9a441;
+    font-size: 11px;
+    flex: none;
+  }
+  .banner-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .banner-text strong {
+    font-weight: 600;
+  }
+  .banner-go {
+    flex: none;
+    font: inherit;
+    font-weight: 600;
+    background: var(--accent, #6ea8fe);
+    color: #06101f;
+    border: 1px solid var(--accent, #6ea8fe);
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  .banner-go:hover {
+    filter: brightness(1.08);
+  }
+  @media (max-width: 560px) {
+    .banner {
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+    .banner-go {
+      width: 100%;
+      padding: 8px 14px;
+    }
+  }
+
+  /* ---- key dialog ---- */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(4, 6, 10, 0.6);
+  }
+  .dialog {
+    position: fixed;
+    z-index: 81;
+    top: 20vh;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(24rem, calc(100vw - 24px));
+    box-sizing: border-box;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--panel, #171a21);
+    border: 1px solid var(--line, #262b36);
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+    font-size: 13px;
+    color: var(--fg, #e6e9ef);
+  }
+  .dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ---- corner pill ---- */
   .wrap {
     position: fixed;
     left: 12px;
@@ -128,8 +292,10 @@
     color: var(--fg, #e6e9ef);
     border-color: var(--accent, #6ea8fe);
   }
-  .panel {
-    width: min(20rem, calc(100vw - 24px));
+
+  /* ---- details panel ---- */
+  .details {
+    width: min(22rem, calc(100vw - 24px));
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -142,6 +308,33 @@
     font-size: 12px;
     color: var(--fg, #e6e9ef);
   }
+  .details .line {
+    color: var(--muted, #9aa4b2);
+    line-height: 1.45;
+  }
+  .details ul {
+    margin: 4px 0 4px 0;
+    padding-left: 18px;
+  }
+  .details .dim {
+    opacity: 0.7;
+  }
+  .blocked strong {
+    color: var(--fg, #e6e9ef);
+    font-weight: 600;
+  }
+  .x {
+    float: right;
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    background: none;
+    border: none;
+    color: var(--muted, #9aa4b2);
+    cursor: pointer;
+    padding: 0 2px;
+  }
+
   .title {
     font-weight: 600;
   }
@@ -150,7 +343,7 @@
     color: var(--muted, #9aa4b2);
     line-height: 1.4;
   }
-  .panel input {
+  .dialog input {
     width: 100%;
     box-sizing: border-box;
     font: inherit;
@@ -158,9 +351,9 @@
     background: var(--bg, #0f1116);
     border: 1px solid var(--line, #262b36);
     border-radius: 6px;
-    padding: 7px 9px;
+    padding: 9px 10px;
   }
-  .panel input:focus {
+  .dialog input:focus {
     outline: none;
     border-color: var(--accent, #6ea8fe);
   }

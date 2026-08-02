@@ -68,6 +68,23 @@ const ts = (v: unknown): number => {
   return Number.isFinite(n) ? Math.floor(n) : 0;
 };
 
+/** D1 refuses any string/blob column over 2,000,000 characters, and `db.batch()` is all-or-nothing:
+ *  one oversized row used to fail the ENTIRE push. Because the client pushes before it pulls, that
+ *  turned a single fat local record (the 2.3 MB bundled example project) into a permanent block on
+ *  every incoming change. Rows over this limit are now skipped and named in the response instead, so
+ *  the rest of the push still lands and the client keeps moving. Margin below 2,000,000 covers the
+ *  other bound columns in the same row. */
+const MAX_COL_CHARS = 1_900_000;
+
+interface Rejection {
+  kind: 'project' | 'prose' | 'worldbuilding' | 'weir';
+  id: string;
+  chars: number;
+  reason: string;
+}
+
+const tooBig = (s: string): boolean => s.length > MAX_COL_CHARS;
+
 /** Atomically claim the next per-user revision. Shared by push and the image endpoints so every
  *  write — data or image — advances the same cursor and shows up on the peer's next pull. */
 export async function nextRev(db: D1Database, userId: string): Promise<number> {
@@ -151,9 +168,20 @@ export async function handlePush(c: Ctx): Promise<Response> {
   const rev = await nextRev(db, userId);
 
   const stmts: D1PreparedStatement[] = [];
+  const rejected: Rejection[] = [];
 
   for (const p of projects) {
     if (!p?.id) continue;
+    const data = JSON.stringify(p.data ?? {});
+    if (tooBig(data)) {
+      rejected.push({
+        kind: 'project',
+        id: p.id,
+        chars: data.length,
+        reason: `Project is ${data.length.toLocaleString('en-GB')} characters; the database accepts at most ${MAX_COL_CHARS.toLocaleString('en-GB')}.`,
+      });
+      continue;
+    }
     stmts.push(
       db
         .prepare(
@@ -163,12 +191,21 @@ export async function handlePush(c: Ctx): Promise<Response> {
              deleted=excluded.deleted, rev=excluded.rev
            WHERE excluded.updated_at >= projects.updated_at`,
         )
-        .bind(userId, p.id, p.name ?? '', JSON.stringify(p.data ?? {}), ts(p.updated_at), del(p.deleted), rev),
+        .bind(userId, p.id, p.name ?? '', data, ts(p.updated_at), del(p.deleted), rev),
     );
   }
 
   for (const p of prose) {
     if (!p?.project_id || !p?.chapter_id) continue;
+    if (tooBig(p.markdown ?? '')) {
+      rejected.push({
+        kind: 'prose',
+        id: `${p.project_id}/${p.chapter_id}`,
+        chars: (p.markdown ?? '').length,
+        reason: `Chapter is ${(p.markdown ?? '').length.toLocaleString('en-GB')} characters; the database accepts at most ${MAX_COL_CHARS.toLocaleString('en-GB')}.`,
+      });
+      continue;
+    }
     stmts.push(
       db
         .prepare(
@@ -183,6 +220,15 @@ export async function handlePush(c: Ctx): Promise<Response> {
 
   for (const w of worldbuilding) {
     if (!w?.project_id || !w?.entity_id) continue;
+    if (tooBig(w.markdown ?? '')) {
+      rejected.push({
+        kind: 'worldbuilding',
+        id: `${w.project_id}/${w.entity_id}`,
+        chars: (w.markdown ?? '').length,
+        reason: `Entry is ${(w.markdown ?? '').length.toLocaleString('en-GB')} characters; the database accepts at most ${MAX_COL_CHARS.toLocaleString('en-GB')}.`,
+      });
+      continue;
+    }
     stmts.push(
       db
         .prepare(
@@ -197,6 +243,12 @@ export async function handlePush(c: Ctx): Promise<Response> {
 
   for (const s of weir) {
     if (!s?.id || !s?.project_id) continue;
+    const axesJson = JSON.stringify(s.axes ?? {});
+    const gatesJson = JSON.stringify(s.gates ?? {});
+    if (tooBig(axesJson) || tooBig(gatesJson) || tooBig(s.fix ?? '')) {
+      rejected.push({ kind: 'weir', id: s.id, chars: axesJson.length + gatesJson.length, reason: 'Weir score row is too large for the database.' });
+      continue;
+    }
     // Tombstones may arrive without card fields; NOT NULL columns get inert defaults on the marker row.
     stmts.push(
       db
@@ -221,9 +273,9 @@ export async function handlePush(c: Ctx): Promise<Response> {
           s.target_id ?? null,
           s.title ?? null,
           s.tier ?? null,
-          JSON.stringify(s.axes ?? {}),
+          axesJson,
           Number.isFinite(s.total) ? Number(s.total) : 0,
-          JSON.stringify(s.gates ?? {}),
+          gatesJson,
           s.verdict ?? 'CUT',
           s.fix ?? null,
           s.created_at != null ? ts(s.created_at) : ts(s.updated_at),
@@ -234,6 +286,16 @@ export async function handlePush(c: Ctx): Promise<Response> {
     );
   }
 
-  if (stmts.length) await db.batch(stmts);
-  return c.json({ applied: stmts.length, rev });
+  /* Apply in chunks. A single db.batch() is atomic, which is what we want for a coherent set of edits,
+   * but an unbounded batch risks tripping D1's own statement/size ceilings on a first-connect flush of
+   * a whole library. Every upsert here is last-write-wins and keyed by id, so replaying or splitting a
+   * push is harmless. */
+  const CHUNK = 40;
+  for (let i = 0; i < stmts.length; i += CHUNK) {
+    await db.batch(stmts.slice(i, i + CHUNK));
+  }
+
+  // 200 even when some rows were skipped: the client must not treat "one record can never fit" as a
+  // failed sync, or it goes back to blocking its own pull. `rejected` is how it reports the skip.
+  return c.json({ applied: stmts.length, rev, rejected });
 }
