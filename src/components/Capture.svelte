@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/stores/app.svelte';
+  import { DEMO } from '../lib/mode';
 
   let open = $state(false);
   let kind = $state<'note' | 'idea' | 'character' | 'world'>('note');
@@ -35,7 +36,9 @@
   }
 </script>
 
-<button class="fab" onclick={openSheet} title="Quick capture" aria-label="Quick capture">+</button>
+{#if !DEMO}
+  <button class="fab" onclick={openSheet} title="Quick capture" aria-label="Quick capture">+</button>
+{/if}
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

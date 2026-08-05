@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/stores/app.svelte';
+  import { DEMO } from '../lib/mode';
   import { exportProjectToFile } from '../lib/export';
 
   let busy = $state(false);
@@ -80,23 +81,29 @@
       <option value={p.id}>{p.name}</option>
     {/each}
   </select>
-  <button class="btn" onclick={newEmpty} disabled={busy}>+ New</button>
-  {#if app.hasExampleWorld}
-    <button class="btn" onclick={loadSample} disabled={busy}>Load example</button>
+  {#if !DEMO}
+    <button class="btn" onclick={newEmpty} disabled={busy}>+ New</button>
+    {#if app.hasExampleWorld}
+      <button class="btn" onclick={loadSample} disabled={busy}>Load example</button>
+    {/if}
+    {#if app.hasPrivateSample}
+      <button class="btn" onclick={loadPrivate} disabled={busy}>Load Cosmos (private)</button>
+    {/if}
   {/if}
-  {#if app.hasPrivateSample}
-    <button class="btn" onclick={loadPrivate} disabled={busy}>Load Cosmos (private)</button>
-  {/if}
+  <!-- Export stays in the demo: it only reads, and it demonstrates that the data is yours to take
+       away — the opposite of a trap. Everything that writes is gone. -->
   <button class="btn" onclick={exportCurrent} disabled={busy || !app.active}>Export…</button>
-  <button class="btn" onclick={() => fileInput.click()} disabled={busy}>Import…</button>
-  <button class="btn danger" onclick={removeCurrent} disabled={busy || !app.active}>Delete…</button>
-  <input
-    bind:this={fileInput}
-    type="file"
-    accept="application/json,.json"
-    onchange={onImportFile}
-    style="display:none"
-  />
+  {#if !DEMO}
+    <button class="btn" onclick={() => fileInput.click()} disabled={busy}>Import…</button>
+    <button class="btn danger" onclick={removeCurrent} disabled={busy || !app.active}>Delete…</button>
+    <input
+      bind:this={fileInput}
+      type="file"
+      accept="application/json,.json"
+      onchange={onImportFile}
+      style="display:none"
+    />
+  {/if}
 </div>
 
 <style>

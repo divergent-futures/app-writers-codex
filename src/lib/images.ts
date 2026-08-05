@@ -62,6 +62,12 @@ function renderSizes(file: File): Promise<Rendered | null> {
         cv.height = Math.max(1, Math.round(h * sc));
         const ctx = cv.getContext('2d');
         if (!ctx) return null;
+        // Chrome's default resize quality is "low" — fine for a big size drop (the old 320px target
+        // hid it) but at 640px the gentler downscale lets that low-quality filter show through as
+        // visible blockiness. Asking for "high" explicitly fixes it; it costs nothing since this only
+        // runs once, when a photo is added.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(im, 0, 0, cv.width, cv.height);
         return cv;
       };

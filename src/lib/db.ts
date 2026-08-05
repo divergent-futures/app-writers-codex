@@ -14,6 +14,7 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { DEMO } from './mode';
 import type { ProjectData, ReferencePack } from './schema';
 import type { GateResult, Verdict, WeirMode } from './weir/verdict';
 
@@ -90,7 +91,9 @@ interface CodexDB extends DBSchema {
   weir: { key: string; value: WeirScoreRecord };
 }
 
-const DB_NAME = 'writers-codex';
+// The read-only demo gets its OWN database. Same origin, different store — so a visitor clicking
+// through /try can never seed into, read, or overwrite a real library sitting in this browser.
+const DB_NAME = DEMO ? 'writers-codex-demo' : 'writers-codex';
 const DB_VERSION = 3;
 
 let _db: Promise<IDBPDatabase<CodexDB>> | null = null;

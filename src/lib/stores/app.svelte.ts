@@ -20,6 +20,7 @@ import {
   setMeta,
   type ProjectRecord,
 } from '../db';
+import { DEMO } from '../mode';
 import { COLLECTION_KEYS, emptyProject, type ProjectData } from '../schema';
 import { deleteEntity as removeFromCollection } from '../edit';
 import { validate, type Warning } from '../validate';
@@ -97,6 +98,9 @@ class AppStore {
         this.projects[0] ||
         pick;
     }
+    // The read-only demo always opens ON the example world — that's the whole point of it, and it
+    // must never land a visitor on the blank "My first world" they can't write into anyway.
+    if (DEMO) pick = this.projects.find((p) => p.id === EXAMPLE_PROJECT_ID) || pick;
     await this.switchTo(pick.id);
     this.loading = false;
   }

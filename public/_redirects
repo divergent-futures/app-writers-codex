@@ -1,0 +1,6 @@
+# Cloudflare Pages SPA fallback.
+#
+# This is a single-page app: every route is drawn by the client, so any path that isn't a real
+# file must be served index.html rather than a 404. That includes /try, the read-only demo the
+# website links to. 200 (not 301/302) so the URL the visitor sees stays put.
+/*    /index.html   200

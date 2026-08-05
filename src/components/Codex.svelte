@@ -9,6 +9,7 @@
   import EntityEditor from './EntityEditor.svelte';
   import CharacterEditor from './CharacterEditor.svelte';
   import { isEditable } from '../lib/edit';
+  import { DEMO } from '../lib/mode';
   import { COLLECTION_KEYS } from '../lib/schema';
   import Characters from './views/Characters.svelte';
   import Timeline from './views/Timeline.svelte';
@@ -249,7 +250,7 @@
   {#if !ready}
     <p class="muted">Loading…</p>
   {:else}
-    {#if isEmptyProject && !welcomeDismissed && view === 'dashboard'}
+    {#if isEmptyProject && !welcomeDismissed && view === 'dashboard' && !DEMO}
       <div class="callout welcome">
         <b>Welcome to Writer’s Codex.</b> This is your world — it starts empty and lives entirely on
         this device. Tap the <b>+</b> button (bottom-right) to capture a character or idea{#if app.hasExampleWorld}, or explore a fully-built example first{/if}.
@@ -279,10 +280,12 @@
     {:else if view === 'write'}
       <Write {rev} target={writeTarget} onProseChange={rehydrate} onTargetConsumed={() => (writeTarget = '')} />
     {:else if view === 'notes'}
-      <div class="callout warn">
-        <b>Quick scratch</b> — saved in this browser only.
-        <textarea class="scratch" bind:value={scratch} oninput={onScratch} placeholder="Jot anything…"></textarea>
-      </div>
+      {#if !DEMO}
+        <div class="callout warn">
+          <b>Quick scratch</b> — saved in this browser only.
+          <textarea class="scratch" bind:value={scratch} oninput={onScratch} placeholder="Jot anything…"></textarea>
+        </div>
+      {/if}
       {@html staticHtml}
     {:else}
       {@html staticHtml}
@@ -297,7 +300,7 @@
   <div class="overlay on" onclick={(e) => { if (e.target === e.currentTarget) closeDetail(); }}>
     <div class="modal">
       <button class="mclose" onclick={closeDetail} aria-label="Close">×</button>
-      {#if isEditable(detailType)}
+      {#if isEditable(detailType) && !DEMO}
         <div class="drawertools">
           <button class="btn" onclick={() => (editing = true)}>Edit</button>
         </div>

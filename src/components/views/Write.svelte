@@ -3,6 +3,7 @@
   import * as E from '../../lib/render/engine.js';
   import type { Book, Chapter } from '../../lib/schema';
   import { app } from '../../lib/stores/app.svelte';
+  import { DEMO } from '../../lib/mode';
   import { getProse, putProse } from '../../lib/db';
 
   let {
@@ -147,12 +148,32 @@
       {@html cockpit}
       {#if chapter}
         <div class="wsec weditor">
-          <div class="wh">Draft (autosaves to this device)</div>
-          <textarea class="proseinput" bind:value={prose} oninput={onProseInput} placeholder="Write the chapter here. Markdown-ish; saved locally as you type."></textarea>
-          <div class="wh" style="margin-top:12px">Where I'm leaving off — saved in this browser</div>
-          <textarea class="scratch wpark" bind:value={park} oninput={onParkInput} placeholder="Jot where you stopped and the next move."></textarea>
+          {#if DEMO}
+            <!-- Read-only tour: show the writing cockpit exactly as it is, but with nothing to type
+                 into. The point is to let someone see how drafting works, not to collect their words
+                 somewhere they'd never find them again. -->
+            <div class="wh">Draft — read-only in this demo</div>
+            <div class="proseinput demoprose">{prose || 'This chapter has no draft in the example world.'}</div>
+          {:else}
+            <div class="wh">Draft (autosaves to this device)</div>
+            <textarea class="proseinput" bind:value={prose} oninput={onProseInput} placeholder="Write the chapter here. Markdown-ish; saved locally as you type."></textarea>
+            <div class="wh" style="margin-top:12px">Where I'm leaving off — saved in this browser</div>
+            <textarea class="scratch wpark" bind:value={park} oninput={onParkInput} placeholder="Jot where you stopped and the next move."></textarea>
+          {/if}
         </div>
       {/if}
     </div>
   </div>
 {/if}
+
+<style>
+  /* The demo's stand-in for the draft textarea: same frame, same typography, but it's a plain
+     block of text with nowhere to type. Preserves the manuscript's own line breaks. */
+  .demoprose {
+    white-space: pre-wrap;
+    overflow-y: auto;
+    max-height: 60vh;
+    resize: none;
+    opacity: 0.92;
+  }
+</style>
