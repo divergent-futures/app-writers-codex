@@ -56,6 +56,8 @@ const CURSOR_KEY = 'syncCursor';
 const SEEDED_KEY = 'syncSeeded';
 const KEY_KEY = 'syncKey';
 const BLOCKED_KEY = 'syncBlocked';
+/** Remembers whether this deployment was ever seen to have a sync backend — see backendAvailable. */
+const BACKEND_KEY = 'syncBackendPresent';
 const POLL_MS = 30_000;
 const PUSH_DEBOUNCE_MS = 1500;
 
@@ -176,6 +178,20 @@ class SyncEngine {
   /** True when the deployment has no photo storage (R2) yet. Text still syncs normally; photos wait
    *  in the queue and go up on their own once it is enabled. Deliberately NOT an error state. */
   photosUnavailable = $state(false);
+  /**
+   * False when this deployment has no sync backend at all — i.e. the static open-source build,
+   * where nothing serves `/api/*`.
+   *
+   * This matters because "no backend" and "backend, but this device isn't connected yet" both
+   * surface as a failed auth probe, and they deserve opposite treatment. On a private deployment
+   * the second case wants the loud connect banner. On the public build there is nothing to
+   * connect to, and showing that banner told every first-time visitor their books lived in the
+   * cloud — flatly contradicting the local-first promise the app is built on, before they had
+   * seen a single feature.
+   *
+   * Detected, not configured, so neither deployment carries a flag someone can forget to set.
+   */
+  backendAvailable = $state(true);
 
   private cursor = 0;
   private started = false;
@@ -194,6 +210,9 @@ class SyncEngine {
     syncKey = (await getMeta<string>(KEY_KEY)) ?? null;
     this.hasKey = !!syncKey;
     this.blocked = (await getMeta<BlockedRecord[]>(BLOCKED_KEY)) ?? [];
+    // Start from what this deployment told us last time, so an offline launch doesn't nag about
+    // connecting to a backend we already know isn't there. Re-checked by the probe below.
+    this.backendAvailable = (await getMeta<boolean>(BACKEND_KEY)) ?? true;
 
     const me = await this.checkAuth();
     if (!me) {
@@ -245,9 +264,20 @@ class SyncEngine {
   private async checkAuth(): Promise<{ userId: string; email: string } | null> {
     try {
       const res = await fetch('/api/auth/me', { headers: authHeaders(), credentials: 'include' });
-      if (!res.ok) return null;
+      // Only a JSON answer proves there is a sync backend here. A real Worker replies in JSON
+      // whether or not the device is authorised (200 with the user, or 401 with an error object).
+      // A build with no Worker replies with whatever the static host does for an unknown path —
+      // the SPA shell, a 404 page, a plain-text error — none of which is JSON. Testing for the
+      // positive case is what makes this robust: we never have to enumerate the ways "nothing is
+      // there" can look.
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      this.backendAvailable = isJson;
+      void setMeta(BACKEND_KEY, isJson);
+      if (!isJson || !res.ok) return null;
       return (await res.json()) as { userId: string; email: string };
     } catch {
+      // The request never completed (offline, DNS, a dropped connection). That says nothing about
+      // whether a backend exists, so leave the remembered answer alone rather than guessing.
       return null;
     }
   }

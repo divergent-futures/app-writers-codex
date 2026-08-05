@@ -25,18 +25,18 @@ function detectDemo(): boolean {
 export const DEMO = detectDemo();
 
 /**
- * Cloud sync ships OFF.
+ * Whether to start the sync engine at all.
  *
- * The sync layer exists for a private deployment that has a Worker and a key behind it. On the
- * public build there is no such backend, so leaving it on meant every first-time visitor was met
- * with a full-width "your books live in the cloud — connect this device" bar, directly
- * contradicting the local-first, no-account promise the app is built on, before they had seen a
- * single feature.
+ * Note this is NOT "does this deployment have sync" — that question answers itself at runtime by
+ * probing `/api/auth/me` (see `backendAvailable` in sync.svelte.ts), so a build with no Worker
+ * behind it goes quiet on its own with nothing to configure. Deliberately not a build flag:
+ * both deployments run the same command, and a flag either of them could forget to set is a flag
+ * that will eventually be forgotten.
  *
- * A deployment that genuinely has the sync Worker turns it back on by building with `VITE_SYNC=1`.
- * The demo never syncs, whatever the build flag says.
+ * The only thing switched off here is sync inside the read-only demo, where there is by
+ * definition nothing to sync.
  */
-export const SYNC_ENABLED = import.meta.env.VITE_SYNC === '1' && !DEMO;
+export const SYNC_ENABLED = !DEMO;
 
 /** Where the demo sends people who want the real, editable thing. */
 export const REAL_APP_URL = '/';

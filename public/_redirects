@@ -3,4 +3,9 @@
 # This is a single-page app: every route is drawn by the client, so any path that isn't a real
 # file must be served index.html rather than a 404. That includes /try, the read-only demo the
 # website links to. 200 (not 301/302) so the URL the visitor sees stays put.
-/*    /index.html   200
+#
+# /api/* is deliberately NOT rewritten. On a deployment that has the sync Worker, those paths are
+# the Worker's; on one that doesn't, letting them 404 honestly is what tells the app there is no
+# backend here, so it can stay quiet about cloud sync instead of prompting for it.
+/api/*   /api/:splat   404
+/*       /index.html   200

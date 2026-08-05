@@ -24,8 +24,9 @@
     error: 'Sync problem',
   };
 
-  /** Disconnected = no key stored on this device. That is the case the banner exists for. */
-  let disconnected = $derived(!sync.hasKey && !sync.signedIn);
+  /** Disconnected = there IS a backend, but this device has no key. That is the case the banner
+   *  exists for. A build with no backend at all shows nothing — see sync.backendAvailable. */
+  let disconnected = $derived(sync.backendAvailable && !sync.hasKey && !sync.signedIn);
 
   let showForm = $state(false);
   let showDetails = $state(false);
@@ -115,7 +116,10 @@
   </div>
 {/if}
 
-<div class="wrap">
+<!-- The whole status corner belongs to deployments that actually have sync. On the open-source
+     build there is no backend, so there is nothing truthful for a "Sync off" pill to report. -->
+{#if sync.backendAvailable}
+  <div class="wrap">
   {#if showDetails && !disconnected}
     <div class="details">
       <div class="title">
@@ -173,7 +177,8 @@
       {#if sync.pending > 0 && sync.status !== 'syncing'}<span class="badge">{sync.pending}</span>{/if}
     </button>
   {/if}
-</div>
+  </div>
+{/if}
 
 <style>
   /* ---- disconnected banner ---- */
