@@ -86,9 +86,18 @@ export interface CraftSystem {
   parts: Part[];
   /** §3.10 — defaults to one derive pass when absent. Not populated by any Phase-1 entry. */
   passes?: Pass[];
-  /** §3.11 — behavioural lines injected into every prompt. Not populated by any Phase-1 entry
-   *  (the prompt-generation layer is Phase 3.5). */
+  /** §3.11 — behavioural lines injected into every prompt, alongside whatever the generated scaffold
+   *  produces from `parts`. Populated from Phase 3.5 (see src/lib/craft/prompt.ts). */
   rules?: string[];
+  /** §3.11's "overridable per instrument" / "canonicalRef" escape hatch. The design doc names this
+   *  concept in prose ("weir-science overrides with canonicalRef: 'weir-scoring-prompt-v2.md'") but
+   *  does not give it a field on the locked §3.4 CraftSystem interface — this is that field, added at
+   *  Phase 3.5 build time. Points at a hardened, hand-tuned prompt doc that should be used INSTEAD OF
+   *  the generated scaffold for this instrument; `ref` is a doc name/path, not inlined prompt text
+   *  (keeps the registry lean and lets the source doc stay the one place that prompt is edited).
+   *  Absent means "use the generated scaffold" — the common case for every future user-authored
+   *  instrument, which is the entire point of generation existing at all. */
+  promptOverride?: { ref: string; note?: string };
   register?: RegisterDef;
   publicDefault: boolean;
   hardLockedPrivate?: boolean;

@@ -21,7 +21,7 @@
  * syncs — user- and pack-authored entries (Phase 9+) are the ones that ride the outbox/pull engine.
  */
 
-import type { AxesPart, BandsPart, GatesPart, LadderPart } from './parts';
+import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart } from './parts';
 import { assertCategoryFailableConsistent, type CraftSystem, type Precondition } from './types';
 
 /* The verdict mapping is identical across every scored matrix in the seed set — Weir's three modes
@@ -41,7 +41,9 @@ const SCORED_MATRIX_BANDS: BandsPart = {
 
 /** Six scored axes /60 — the shape every scored matrix in the seed set uses (Weir's three modes,
  *  Le Guin). Named for the shape, not for Weir, now that a second framework uses it verbatim. */
-function scoredAxesOf60(axes: { code: string; label: string; question: string }[]): AxesPart {
+function scoredAxesOf60(
+  axes: { code: string; label: string; question: string; bands?: AxisBand[]; loadBearing?: boolean }[],
+): AxesPart {
   return {
     kind: 'axes',
     total: 60,
@@ -157,6 +159,29 @@ const WEIR_SCIENCE_LADDER: LadderPart = {
   ],
 };
 
+/** POSSIBILITY + LICENCE — the two of the canonical prompt's 18 fields that `ladder + axes + gates +
+ *  bands + register` quietly dropped through v3.1 (design §3.2, the "self-caught silent loss"). Option
+ *  text and field content sourced verbatim from weir-scoring-prompt-v2.md's own POSSIBILITY/LICENCE
+ *  sections — not paraphrased from the design doc's shorter summary. */
+const WEIR_SCIENCE_FIELDS: FieldsPart = {
+  kind: 'fields',
+  fields: [
+    {
+      key: 'POSSIBILITY',
+      label: 'Possibility',
+      options: ['Possible now', 'Engineering only', 'Not under known physics'],
+      required: true,
+    },
+    {
+      key: 'LICENCE',
+      label: 'Licence',
+      options: ['None', 'Derives from existing', 'NEW licence'],
+      pointerTo: 'register', // drives the graduation path into the licence ledger — see design §3.2, §3.7
+      required: true,
+    },
+  ],
+};
+
 export const WEIR_SCIENCE: CraftSystem = {
   id: 'weir-science',
   name: 'Weir Matrix — Science',
@@ -173,10 +198,35 @@ export const WEIR_SCIENCE: CraftSystem = {
     scoredAxesOf60([
       { code: 'ANCHOR', label: 'Anchor', question: 'What real science or established canon does this tie to?' },
       { code: 'MECHANISM', label: 'Mechanism', question: 'Is there an actual mechanism, not just an assertion?' },
-      { code: 'CONSERVATION', label: 'Conservation', question: 'Does it respect conservation laws, or does it budget the break?' },
-      { code: 'COST_LIMIT', label: 'Cost & Limit', question: 'What does it cost, and what can it not do?' },
+      {
+        code: 'CONSERVATION',
+        label: 'Conservation',
+        question: 'Does it respect conservation laws, or does it budget the break?',
+        loadBearing: true,
+        bands: [
+          { min: 2, max: 3, anchor: 'no budget or off by ≥10^10' },
+          { min: 6, max: 7, anchor: 'budget attempted, roughly plausible, key term still soft' },
+          { min: 9, max: 10, anchor: 'budget closes with stated assumptions and the shortfall/surplus already explains a story constraint' },
+        ],
+      },
+      {
+        code: 'COST_LIMIT',
+        label: 'Cost & Limit',
+        question: 'What does it cost, and what can it not do?',
+        loadBearing: true,
+        bands: [
+          { min: 9, max: 10, anchor: 'all three (limit / cost / counter) answered and at least one has generated (or clearly can generate) a scene' },
+        ],
+      },
       { code: 'CONSEQUENCE', label: 'Consequence', question: 'What follows from this existing, that the story must now account for?' },
-      { code: 'FAILURE_MODE', label: 'Failure Mode', question: 'How does it fail, and is that failure mode used anywhere?' },
+      {
+        code: 'FAILURE_MODE',
+        label: 'Failure Mode',
+        question: 'How does it fail, and is that failure mode used anywhere?',
+        bands: [
+          { min: 9, max: 10, anchor: 'specific failure with rate and it has already cost the story something (or is designed to)' },
+        ],
+      },
     ]),
     hardGatesRework([
       { code: 'G1', label: 'Conservation', test: 'Does the budget balance, or is it off by orders of magnitude?' },
@@ -186,9 +236,27 @@ export const WEIR_SCIENCE: CraftSystem = {
       { code: 'G5', label: 'Expert', test: 'Would a domain expert reading this find an error or a declared licence?' },
     ]),
     SCORED_MATRIX_BANDS,
-    // fields(POSSIBILITY, LICENCE) + register(licence ledger) + passes(3) land in Phase 3.5 / Phase 4
-    // — see the module comment above. Do not add them here piecemeal.
+    WEIR_SCIENCE_FIELDS,
+    // register(licence ledger) + passes(3) still land in Phase 4 — see the module comment above.
   ],
+  // Verbatim from weir-scoring-prompt-v2.md's "Rules" section plus its opening-paragraph instruction
+  // ("Prefer deriving from an existing root licence over granting a new one") — this is the doc the
+  // design's §3.11 example rules list was itself drawn from.
+  rules: [
+    'Compute; do not gesture.',
+    'Never fabricate a paper. If you use a real result, name it. If you compute from first principles, say so.',
+    'Far-future fiction may sit at "Not under known physics," but only as a named, derived licence.',
+    'If the element fails any gate, the verdict is REWORK even if the total is high.',
+    'Prefer deriving from an existing root licence over granting a new one.',
+  ],
+  // §3.11: "weir-science overrides with canonicalRef... Nothing generated should displace it." This
+  // prompt was hardened across three versions (weir-redteam-and-calibrations.md's red-team split by
+  // target type, the ledger injection, the anti-fabrication rules, the pipe-separated output format) —
+  // see src/lib/craft/prompt.ts's resolvePrompt(), which returns this instead of a generated prompt.
+  promptOverride: {
+    ref: 'weir-scoring-prompt-v2.md',
+    note: 'Canonical v2.1 hardened prompt. Do not generate a replacement from parts[] — use this doc verbatim.',
+  },
   publicDefault: true,
 };
 
