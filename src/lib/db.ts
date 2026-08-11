@@ -9,11 +9,17 @@
  *   - packs          : bundled reference packs, keyed by id            (shared across projects)
  *   - meta           : app singletons (activeProjectId, settings)      (keyed by string)
  *   - weir           : Weir Matrix scoring runs, keyed by id           (append-only history, v3)
+ *   - craftRuns      : Craft Registry runs, keyed by id                (append-only history, v4)
+ *                      Phase 1 scaffold (claude/craft-registry-design-2026-08-11.md) — local-only for
+ *                      now, backfilled once from `weir` on upgrade. See the v4 upgrade step below for
+ *                      why this is deliberately NOT yet in `OutboxStore` / the sync engine.
  *
  * `idb` is isolated to this file so the store engine stays swappable.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { migrateWeirScoreToCraftRun } from './craft/migrate';
+import type { CraftRun } from './craft/types';
 import { DEMO } from './mode';
 import type { ProjectData, ReferencePack } from './schema';
 import type { GateResult, Verdict, WeirMode } from './weir/verdict';
@@ -89,19 +95,20 @@ interface CodexDB extends DBSchema {
   meta: { key: string; value: unknown };
   outbox: { key: string; value: OutboxEntry };
   weir: { key: string; value: WeirScoreRecord };
+  craftRuns: { key: string; value: CraftRun };
 }
 
 // The read-only demo gets its OWN database. Same origin, different store — so a visitor clicking
 // through /try can never seed into, read, or overwrite a real library sitting in this browser.
 const DB_NAME = DEMO ? 'writers-codex-demo' : 'writers-codex';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let _db: Promise<IDBPDatabase<CodexDB>> | null = null;
 
 function db(): Promise<IDBPDatabase<CodexDB>> {
   if (!_db) {
     _db = openDB<CodexDB>(DB_NAME, DB_VERSION, {
-      upgrade(d) {
+      upgrade(d, oldVersion, _newVersion, transaction) {
         if (!d.objectStoreNames.contains('projects')) d.createObjectStore('projects', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('prose'))
           d.createObjectStore('prose', { keyPath: ['projectId', 'chapterId'] });
@@ -115,6 +122,23 @@ function db(): Promise<IDBPDatabase<CodexDB>> {
         if (!d.objectStoreNames.contains('outbox')) d.createObjectStore('outbox', { keyPath: 'key' });
         // v3: Weir Matrix score history
         if (!d.objectStoreNames.contains('weir')) d.createObjectStore('weir', { keyPath: 'id' });
+
+        // v4: Craft Registry runs (Phase 1, claude/craft-registry-design-2026-08-11.md). Local-only
+        // scaffold — deliberately NOT added to `OutboxStore` yet, because the Worker has no
+        // craft_runs endpoints to receive it (migrations/0003_craft_registry.sql is schema-only, not
+        // wired into worker/sync.ts). Wiring live sync is a later phase's work, not Phase 1's.
+        const craftRunsIsNew = !d.objectStoreNames.contains('craftRuns');
+        const craftRuns = craftRunsIsNew ? d.createObjectStore('craftRuns', { keyPath: 'id' }) : transaction.objectStore('craftRuns');
+        // One-time backfill from the existing `weir` store, only for a real upgrade (oldVersion 0 means
+        // a brand-new browser with nothing to migrate — `weir` would be empty anyway).
+        if (craftRunsIsNew && oldVersion > 0 && oldVersion < 4) {
+          transaction
+            .objectStore('weir')
+            .getAll()
+            .then((rows) => {
+              for (const rec of rows) craftRuns.put(migrateWeirScoreToCraftRun(rec));
+            });
+        }
       },
     });
   }
@@ -204,8 +228,8 @@ export async function deleteProject(id: string): Promise<void> {
     }
     await tx.done;
   }
-  {
-    const tx = d.transaction('weir', 'readwrite');
+  for (const store of ['weir', 'craftRuns'] as const) {
+    const tx = d.transaction(store, 'readwrite');
     let cursor = await tx.store.openCursor();
     while (cursor) {
       if (cursor.value.projectId === id) await cursor.delete();
@@ -215,6 +239,7 @@ export async function deleteProject(id: string): Promise<void> {
   }
   // Only the project tombstone is queued; the server cascades tombstones to its prose/wb/images,
   // and the peer's pull-apply cascades the local delete — so child deletes need no separate markers.
+  // (craftRuns isn't queued at all yet — see the v4 upgrade comment above; it has no sync path.)
   await enqueue({ key: `projects:${id}`, store: 'projects', op: 'delete', projectId: id });
 }
 
@@ -334,6 +359,40 @@ export async function deleteWeirScore(projectId: string, id: string): Promise<vo
 export async function listWeirScores(projectId: string, targetId?: string): Promise<WeirScoreRecord[]> {
   const out: WeirScoreRecord[] = [];
   const tx = (await db()).transaction('weir', 'readonly');
+  let cursor = await tx.store.openCursor();
+  while (cursor) {
+    const rec = cursor.value;
+    if (rec.projectId === projectId && (!targetId || rec.targetId === targetId)) out.push(rec);
+    cursor = await cursor.continue();
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/* ---------------- Craft Registry runs (Phase 1 scaffold, v4) ----------------
+ *
+ * Local-only for now: these do NOT enqueue to the outbox (contrast with putWeirScore above), because
+ * there is no server endpoint yet to receive a craft run and no point queuing writes that can never
+ * drain — see the v4 upgrade comment. When a later phase wires worker/craft.ts + a `craft_runs` push
+ * bucket, add the `enqueue(...)` calls here the same way putWeirScore does, and add 'craftRuns' to
+ * `OutboxStore`. Do not add either half without the other. */
+
+export async function getCraftRun(id: string): Promise<CraftRun | undefined> {
+  return (await db()).get('craftRuns', id);
+}
+
+export async function putCraftRun(rec: CraftRun): Promise<void> {
+  await (await db()).put('craftRuns', rec);
+}
+
+export async function deleteCraftRun(id: string): Promise<void> {
+  await (await db()).delete('craftRuns', id);
+}
+
+/** Run history, newest first — for one entity when targetId is given, else the whole project.
+ *  Mirrors listWeirScores; once Phase 2+ systems write real runs this is what their UI reads. */
+export async function listCraftRuns(projectId: string, targetId?: string): Promise<CraftRun[]> {
+  const out: CraftRun[] = [];
+  const tx = (await db()).transaction('craftRuns', 'readonly');
   let cursor = await tx.store.openCursor();
   while (cursor) {
     const rec = cursor.value;
