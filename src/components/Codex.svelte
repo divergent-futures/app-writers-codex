@@ -13,14 +13,14 @@
   import { COLLECTION_KEYS } from '../lib/schema';
   import Characters from './views/Characters.svelte';
   import Timeline from './views/Timeline.svelte';
-  import Matrix from './views/Matrix.svelte';
+  import CharacterBoard from './views/Matrix.svelte'; // file not yet renamed — see craft-registry-phase3 build log
   import WebGraph from './views/WebGraph.svelte';
   import Reference from './views/Reference.svelte';
   import Write from './views/Write.svelte';
 
   const VIEWS: [string, string][] = [
     ['dashboard', 'Dashboard'], ['loops', 'Open loops'], ['timeline', 'Timeline'], ['characters', 'Characters'],
-    ['books', 'Books'], ['matrix', 'Matrix'], ['web', 'Web'], ['lessons', 'Lessons'], ['themes', 'Themes'],
+    ['books', 'Books'], ['board', 'Character Board'], ['web', 'Web'], ['lessons', 'Lessons'], ['themes', 'Themes'],
     ['faiths', 'Faiths'], ['pantheon', 'Pantheon'], ['threads', 'Threads'], ['worlds', 'Worlds'], ['outline', 'Outline'],
     ['write', 'Write'], ['notes', 'Notes'], ['research', 'Research'], ['reading', 'Reading'], ['reference', 'Reference'],
   ];
@@ -271,8 +271,8 @@
       <Timeline {rev} />
     {:else if view === 'characters'}
       <Characters {rev} />
-    {:else if view === 'matrix'}
-      <Matrix {rev} />
+    {:else if view === 'board'}
+      <CharacterBoard {rev} />
     {:else if view === 'web'}
       <WebGraph {rev} />
     {:else if view === 'reference'}

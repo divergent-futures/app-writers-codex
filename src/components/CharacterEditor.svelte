@@ -104,7 +104,7 @@
 
     <!-- ARCS -->
     <div class="esec">
-      <div class="esechead"><b>Arcs</b> <span class="muted">per book — scores &amp; Story Circle drive the Matrix</span>
+      <div class="esechead"><b>Arcs</b> <span class="muted">per book — scores &amp; Story Circle drive the Character Board</span>
         <span class="spacer"></span>
         {#if unarcedBooks.length}<button class="btn small" onclick={addArc}>+ Arc</button>{/if}
       </div>

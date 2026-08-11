@@ -255,7 +255,47 @@ export const LEGUIN: CraftSystem = {
   applicability: [LEGUIN_HANDSHAKE_RULE],
 };
 
-export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [WEIR_IDEA, WEIR_PROSE, WEIR_SCIENCE, LEGUIN];
+/* ---------------- Sanderson Character Mixing Board (Phase 3) ----------------
+ *
+ * design §1.6: the shipped book-level P/R/C + trajectory view (src/components/views/Matrix.svelte,
+ * rendered by matrixBody()/trajectoryBody() in src/lib/render/engine.js) IS Sanderson's Character
+ * Mixing Board, already built — it was just never registered or named as such. This entry doesn't
+ * add scoring logic; the scores already live on `Arc.scores` in schema.ts (proactivity/relatability/
+ * capability, ported straight from that field). Absorbing it — registering this entry and renaming
+ * the nav tab away from "Matrix" — is what frees "matrix" as a name, per design §1.6: "the collision
+ * dissolves because the view was misnamed, not the category."
+ *
+ * LENS, not MATRIX: sanderson-framework.md Part 1 never fails a character on the sliders — "the most
+ * important thing is that the sliders move," not that they clear a threshold. `axes.total` is
+ * intentionally omitted (design §3.2: "axes.total optional — one part type serves both Weir's scored
+ * /60 and Sanderson's descriptive sliders"), so this is `output: 'profile'`, no bands, no gates. */
+
+export const SANDERSON_BOARD: CraftSystem = {
+  id: 'sanderson-board',
+  name: 'Sanderson Character Mixing Board',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'lens',
+  failable: false,
+  group: 'sanderson',
+  question: 'What is this character, and does it have depth?',
+  target: { shape: 'element', types: ['character'] },
+  output: 'profile',
+  parts: [
+    {
+      kind: 'axes',
+      // no `total` — descriptive, no verdict. See the module comment above.
+      axes: [
+        { code: 'PROACTIVITY', label: 'Proactivity', question: 'Does the character drive the plot rather than react to it?', max: 10 },
+        { code: 'RELATABILITY', label: 'Relatability', question: 'How much does the reader empathise with or enjoy this character?', max: 10 },
+        { code: 'CAPABILITY', label: 'Capability', question: 'What can this character actually do — skill, competence, capacity to effect change?', max: 10 },
+      ],
+    },
+  ],
+  publicDefault: true,
+};
+
+export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [WEIR_IDEA, WEIR_PROSE, WEIR_SCIENCE, LEGUIN, SANDERSON_BOARD];
 
 // Registration-time check (§3.3) — fails fast if a future edit adds an entry with an inconsistent
 // category/failable pair, rather than letting it ship silently wrong.
@@ -274,9 +314,9 @@ export function listSystems(): readonly CraftSystem[] {
 /** Grouped by `group`, then category — the shape the Craft Systems screen needs from its first
  *  version (design §3.9, and the "one UI risk, owned early" note in §7): an ungrouped wall of
  *  entries is the thing most likely to make the registry feel like a regression from three
- *  hardcoded lenses. Four entries across two groups (`weir`, `leguin`) as of Phase 2 — still small
- *  enough to eyeball, but the grouping exists now precisely so it doesn't need retrofitting once the
- *  count climbs toward the full seventeen. */
+ *  hardcoded lenses. Five entries across three groups (`weir`, `leguin`, `sanderson`) as of Phase 3 —
+ *  still small enough to eyeball, but the grouping exists now precisely so it doesn't need
+ *  retrofitting once the count climbs toward the full seventeen. */
 export function listSystemsGrouped(): Map<string, CraftSystem[]> {
   const out = new Map<string, CraftSystem[]>();
   for (const system of BUILTIN_SYSTEMS) {
