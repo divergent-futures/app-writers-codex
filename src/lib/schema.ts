@@ -11,6 +11,11 @@
 
 export const SCHEMA_VERSION = 1;
 
+/** Reference-pack schema version (independent of the project SCHEMA_VERSION above).
+ *  v2 (2026-08-06, Reference Pack Library Plan v1.2 §3): work_cards (with medium enum),
+ *  four-tier quality, pack version header fields. */
+export const REF_SCHEMA_VERSION = 2;
+
 /* ---------- enums (build.py validates these; free-text fields stay `string`) ---------- */
 export const CONTAINER_TYPE = ['book', 'season', 'episode', 'arc', 'game', 'part', 'movement'] as const;
 export const TRACK_KIND = ['spine', 'species', 'world'] as const;
@@ -22,7 +27,13 @@ export const READING_STATUS = ['read', 'reading', 'toread'] as const;
 export const RELIGION_STATUS = ['emerging', 'established', 'dominant', 'corrupted', 'dead'] as const;
 export const RELIGION_TRUTH = ['accurate', 'partial', 'distorted', 'corrupted'] as const;
 export const LINK_KIND = ['world', 'thread'] as const;
-export const REF_QUALITY = ['strong', 'weak'] as const;
+/** Four-tier since ref-schema v2. `excellent` is intentionally rare ("study this");
+ *  `terrible` actively teaches the wrong lesson (cautionary example). */
+export const REF_QUALITY = ['excellent', 'strong', 'weak', 'terrible'] as const;
+/** Medium enum for work_cards entries (ref-schema v2; `nonfiction` added in the
+ *  2026-08-06 pre-release amendment — enum closed at 9 values). Per-example `medium` on
+ *  example_cards stays free text. `stage` deferred. */
+export const REF_MEDIUM = ['novel', 'film', 'tv', 'comic', 'manga', 'graphic-novel', 'game', 'audio', 'nonfiction'] as const;
 export const ARC_STATUS = ['open', 'closed'] as const;
 
 export type ContainerType = (typeof CONTAINER_TYPE)[number];
@@ -36,6 +47,7 @@ export type ReligionStatus = (typeof RELIGION_STATUS)[number];
 export type ReligionTruth = (typeof RELIGION_TRUTH)[number];
 export type LinkKind = (typeof LINK_KIND)[number];
 export type RefQuality = (typeof REF_QUALITY)[number];
+export type RefMedium = (typeof REF_MEDIUM)[number];
 
 /* ---------- shared ---------- */
 export interface MediaItem {
@@ -282,14 +294,16 @@ export interface ReferenceCollection {
   label: string;
   labelSingular: string;
   badge: string;
-  schema: 'example_cards' | 'principle_cards' | 'author_cards' | 'book_cards' | 'checklist_cards';
+  /** `book_cards` is retired as of ref-schema v2 (replaced by `work_cards`, which adds
+   *  `medium`); it remains in the union only so pre-v2 bundled packs still type-check. */
+  schema: 'example_cards' | 'principle_cards' | 'author_cards' | 'work_cards' | 'book_cards' | 'checklist_cards';
   badgeBg: string;
   badgeFg: string;
 }
 
 export interface ReferenceExample {
   work?: string;
-  medium?: string;
+  medium?: string; // free text — NOT the RefMedium enum (predates it; richer descriptions)
   year?: string;
   quality?: RefQuality;
   text?: string;
@@ -319,11 +333,12 @@ export interface ReferenceEntry {
   knownFor?: string;
   signature?: string;
   works?: ReferenceWork[];
-  // book_cards
+  // work_cards (formerly book_cards; gains `medium` in ref-schema v2)
   author?: string;
   year?: string;
   awards?: string;
   text?: string;
+  medium?: RefMedium;
   // checklist_cards
   items?: string[];
   /** derived UI fields */
@@ -336,6 +351,11 @@ export interface ReferenceEntry {
 export interface ReferencePack {
   id?: string;
   name?: string;
+  /** ref-schema v2 version header (Plan v1.2 §3.2) — optional so pre-v2 packs still load */
+  packVersion?: string; // semver; patch=corrections, minor=new entries, major=breaking
+  schemaVersion?: number; // == REF_SCHEMA_VERSION for v2 packs
+  lastUpdated?: string; // YYYY-MM-DD
+  minAppVersion?: string;
   collections: ReferenceCollection[];
   entries: ReferenceEntry[];
 }
