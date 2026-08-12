@@ -38,7 +38,32 @@ export interface RegisterDef {
   readableByGates: string[]; // ['G2-OneLie', 'G5-Expert']
 }
 
-/* ---------------- passes (§3.10) — not exercised until Phase 4 ---------------- */
+/** One row of a RegisterDef's data (§3.7: "schema is global; rows are per-project data") — Phase 4,
+ *  see src/lib/craft/register.ts for the read/write logic this shape supports. Not on the locked §3.4
+ *  interface list because RegisterDef (the schema) was locked, not RegisterRow (the data it describes) —
+ *  the design names rows only in prose ("§3.13: SYNCS ... register_rows") and in the row template
+ *  quoted from weir-process.md Part Twelve. This is that shape, added at Phase 4 build time.
+ *
+ *  `id` is this record's own storage key (like every other record's `id`). `values.id` is a DIFFERENT
+ *  id — the register's own human-facing display id ('L1', 'C3', 'R2', ...), which is declared as an
+ *  ordinary column (key:'id') in RegisterDef.columns and assigned by register.ts's
+ *  `nextRegisterRowId()`. Keeping them distinct means the display-id scheme (per-register, per-status
+ *  prefix + sequence) never has to double as the storage/sync primary key. */
+export interface RegisterRow {
+  id: string;
+  projectId: string;
+  registerId: string; // matches the owning RegisterDef.id — 'licence' | 'culture'
+  systemId: string; // which CraftSystem's register this row belongs to, e.g. 'weir-science'
+  status: string; // one of the owning RegisterDef.statusEnum
+  values: Record<string, string>; // column key -> value, per RegisterDef.columns (includes 'id')
+  /** The CraftRun whose pass-3 reconciliation produced this row, per §3.7 rule 2 ("verdicts graduate
+   *  into it") — absent for rows entered by hand rather than graduated from a run. */
+  sourceRunId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/* ---------------- passes (§3.10) — populated from Phase 4 (weir-science, leguin) ---------------- */
 
 export interface Pass {
   n: number;

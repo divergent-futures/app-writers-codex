@@ -13,13 +13,16 @@
  *                      Phase 1 scaffold (claude/craft-registry-design-2026-08-11.md) — local-only for
  *                      now, backfilled once from `weir` on upgrade. See the v4 upgrade step below for
  *                      why this is deliberately NOT yet in `OutboxStore` / the sync engine.
+ *   - registerRows   : Craft Registry register rows (licence ledger, culture ledger, ...), keyed by id
+ *                      (design §3.7, Phase 4). Local-only, same reasoning as craftRuns above — no
+ *                      worker endpoint exists yet to receive one. Brand-new data, so no backfill step.
  *
  * `idb` is isolated to this file so the store engine stays swappable.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { migrateWeirScoreToCraftRun } from './craft/migrate';
-import type { CraftRun } from './craft/types';
+import type { CraftRun, RegisterRow } from './craft/types';
 import { DEMO } from './mode';
 import type { ProjectData, ReferencePack } from './schema';
 import type { GateResult, Verdict, WeirMode } from './weir/verdict';
@@ -96,12 +99,13 @@ interface CodexDB extends DBSchema {
   outbox: { key: string; value: OutboxEntry };
   weir: { key: string; value: WeirScoreRecord };
   craftRuns: { key: string; value: CraftRun };
+  registerRows: { key: string; value: RegisterRow };
 }
 
 // The read-only demo gets its OWN database. Same origin, different store — so a visitor clicking
 // through /try can never seed into, read, or overwrite a real library sitting in this browser.
 const DB_NAME = DEMO ? 'writers-codex-demo' : 'writers-codex';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let _db: Promise<IDBPDatabase<CodexDB>> | null = null;
 
@@ -139,6 +143,10 @@ function db(): Promise<IDBPDatabase<CodexDB>> {
               for (const rec of rows) craftRuns.put(migrateWeirScoreToCraftRun(rec));
             });
         }
+
+        // v5: Craft Registry register rows (Phase 4, design §3.7). Brand-new data — nothing to
+        // backfill, unlike craftRuns' one-time migration from `weir` above.
+        if (!d.objectStoreNames.contains('registerRows')) d.createObjectStore('registerRows', { keyPath: 'id' });
       },
     });
   }
@@ -228,7 +236,7 @@ export async function deleteProject(id: string): Promise<void> {
     }
     await tx.done;
   }
-  for (const store of ['weir', 'craftRuns'] as const) {
+  for (const store of ['weir', 'craftRuns', 'registerRows'] as const) {
     const tx = d.transaction(store, 'readwrite');
     let cursor = await tx.store.openCursor();
     while (cursor) {
@@ -239,7 +247,8 @@ export async function deleteProject(id: string): Promise<void> {
   }
   // Only the project tombstone is queued; the server cascades tombstones to its prose/wb/images,
   // and the peer's pull-apply cascades the local delete — so child deletes need no separate markers.
-  // (craftRuns isn't queued at all yet — see the v4 upgrade comment above; it has no sync path.)
+  // (craftRuns/registerRows aren't queued at all yet — see the v4/v5 upgrade comments above; neither
+  // has a sync path.)
   await enqueue({ key: `projects:${id}`, store: 'projects', op: 'delete', projectId: id });
 }
 
@@ -397,6 +406,39 @@ export async function listCraftRuns(projectId: string, targetId?: string): Promi
   while (cursor) {
     const rec = cursor.value;
     if (rec.projectId === projectId && (!targetId || rec.targetId === targetId)) out.push(rec);
+    cursor = await cursor.continue();
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/* ---------------- Craft Registry register rows (Phase 4 scaffold, design §3.7) ----------------
+ *
+ * Local-only, same reasoning as the craftRuns block above: no worker endpoint yet to receive a
+ * register row and no point queuing writes that can never drain. When a later phase wires
+ * worker/craft.ts + a `register_rows` push bucket, add `enqueue(...)` calls here the way putWeirScore
+ * does, and add 'registerRows' to `OutboxStore`. Do not add either half without the other. */
+
+export async function getRegisterRow(id: string): Promise<RegisterRow | undefined> {
+  return (await db()).get('registerRows', id);
+}
+
+export async function putRegisterRow(row: RegisterRow): Promise<void> {
+  await (await db()).put('registerRows', row);
+}
+
+export async function deleteRegisterRow(id: string): Promise<void> {
+  await (await db()).delete('registerRows', id);
+}
+
+/** All rows for one register within a project — e.g. weir-science's licence ledger — newest first.
+ *  `register.ts`'s budget/id/gate-data-block helpers all take exactly this shape as input. */
+export async function listRegisterRows(projectId: string, registerId: string): Promise<RegisterRow[]> {
+  const out: RegisterRow[] = [];
+  const tx = (await db()).transaction('registerRows', 'readonly');
+  let cursor = await tx.store.openCursor();
+  while (cursor) {
+    const rec = cursor.value;
+    if (rec.projectId === projectId && rec.registerId === registerId) out.push(rec);
     cursor = await cursor.continue();
   }
   return out.sort((a, b) => b.createdAt - a.createdAt);

@@ -2,27 +2,25 @@
  *
  * Phase 1 migrated Weir in as three entries — weir-idea, weir-prose, weir-science — using exactly the
  * rubric content already shipped in writers-codex-weir-module.md §3-6 (the same tiers, axes, gates
- * and bands that src/lib/weir/verdict.ts already implements). That is deliberately NOT the full v5
- * weir-science entry from the design doc's §1.5 table: `fields` (POSSIBILITY/LICENCE) arrives in
- * Phase 3.5, `passes` and the licence-ledger `register` in Phase 4. Adding those now would register
- * parts the app has no engine for yet, which is exactly the "legal, silent, and wrong" failure mode
- * §3.3 exists to prevent — so they're left off until the phase that gives them a real implementation.
+ * and bands that src/lib/weir/verdict.ts already implements). Phase 3.5 added weir-science's `fields`
+ * part (POSSIBILITY/LICENCE) and its prompt scaffold. Phase 4 (this pass) adds `passes` and the
+ * licence-ledger `register` to both weir-science and leguin, and leguin's own culture-ledger
+ * `register` + three-pass loop — the last of the parts each was deliberately left without an engine
+ * for until now (§3.3: registering parts with no real implementation is the "legal, silent, and
+ * wrong" failure mode the whole design exists to prevent).
  *
  * Phase 2 adds `leguin`, using the exact ladder/axes/gates content from leguin-coherence-lens.md
  * Parts Three through Five. Per design §7, "Le Guin — data only; reuses the Weir engine and card
  * verbatim" — this is why `scoredAxesOf60`/`hardGatesRework`/the shared bands constant below are
  * factored out rather than duplicated: Le Guin is *literally* running through the same code Weir
- * does, which is the whole point of the phase. For the same reason Le Guin's `register` (the culture
- * ledger) and `passes` (Derive/Red-team/Reconcile) are left off here too, exactly as weir-science's
- * were in Phase 1 — Phase 4 ("Registers first-class + passes") is generic across every matrix, not
- * Weir-specific, so neither framework gets those parts before the engine that backs them exists.
+ * does, which is the whole point of the phase.
  *
  * Every entry here is `source: 'builtin'`, which per §3.13 means it ships with the app and never
  * syncs — user- and pack-authored entries (Phase 9+) are the ones that ride the outbox/pull engine.
  */
 
 import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart } from './parts';
-import { assertCategoryFailableConsistent, type CraftSystem, type Precondition } from './types';
+import { assertCategoryFailableConsistent, type CraftSystem, type Pass, type Precondition, type RegisterDef } from './types';
 
 /* The verdict mapping is identical across every scored matrix in the seed set — Weir's three modes
  * AND Le Guin (design §2: "thresholds 48+/36-47/24-35/<24, byte-identical to Weir's") — REWORK on
@@ -159,6 +157,68 @@ const WEIR_SCIENCE_LADDER: LadderPart = {
   ],
 };
 
+/** The licence ledger (design §3.7, Phase 4). Columns sourced verbatim from weir-process.md Part
+ *  Twelve's row template (Name/Tier/breaks/buys/costs/forbids/derives-from/Open questions), plus the
+ *  `id` and `status` columns the live `cosmos-licence-ledger.md` added on top of that template. Per
+ *  §3.7's fix, `Declared errors` is NOT a column here — it's folded into `statusEnum` as `Declared
+ *  error`, which is what makes G5's "a declared error passes" readable at all.
+ *
+ *  `budget: {max:5, counts:['Accepted']}` — cosmos-licence-ledger.md's own "Rules of the Ledger" #1:
+ *  "Target ceiling 3-5 for the whole book" (the schema carries the ceiling; the 3-5 range is a written
+ *  norm, not two enforced numbers) — "candidates don't count" is `counts` naming only `'Accepted'`.
+ *  Schema only: this ships with an EMPTY ledger (§3.7 — "weir-codex-handoff.md is explicit that Cosmos
+ *  licences must not be hardcoded"). No row data lives here. */
+const WEIR_LICENCE_REGISTER: RegisterDef = {
+  id: 'licence',
+  label: 'Licence ledger',
+  columns: [
+    { key: 'id', label: 'ID', type: 'id' },
+    { key: 'name', label: 'Name', type: 'text' },
+    { key: 'tier', label: 'Tier', type: 'text' },
+    { key: 'breaks', label: 'What it breaks', type: 'text' },
+    { key: 'buys', label: 'What it buys', type: 'text' },
+    { key: 'costs', label: 'What it costs', type: 'text' },
+    { key: 'forbids', label: 'What it forbids', type: 'text' },
+    { key: 'derivesFrom', label: 'What derives from it', type: 'text' },
+    { key: 'openQuestions', label: 'Open questions', type: 'text' },
+    { key: 'status', label: 'Status', type: 'enum' },
+  ],
+  statusEnum: ['Accepted', 'Needs rework', 'Parked', 'Candidate', 'Closed', 'Declared error'],
+  idPrefix: 'L', // candidates use 'C' by the universal convention register.ts documents, not this field
+  budget: { max: 5, counts: ['Accepted'] },
+  readableByGates: ['G2-OneLie', 'G5-Expert'], // exact strings from design §3.7
+};
+
+/** The three-pass loop (design §3.10), verbatim from weir-redteam-and-calibrations.md's own three
+ *  red-team personas split by target type (design: "not speculative — already ships exactly these
+ *  three ... prompts, split on exactly this axis"). Pass 1 carries no inline `prompt` — see the
+ *  comment on the `n:1` entry below for why duplicating the canonical prompt text here would be wrong. */
+const WEIR_SCIENCE_PASSES: Pass[] = [
+  {
+    n: 1,
+    name: 'Derive',
+    // No inline prompt text: this system already declares `promptOverride` (below), so
+    // `resolvePrompt(system)` returns the canonical weir-scoring-prompt-v2.md text. Repeating that
+    // text here would be the "second, silently-drifting copy" prompt.ts's own module comment warns
+    // against — one source of truth for the prompt, referenced, not duplicated.
+  },
+  {
+    n: 2,
+    name: 'Red-team',
+    requireDifferentModel: true,
+    promptByTargetType: {
+      default: 'hostile astrophysicist + systems engineer',
+      species: 'hostile exobiologist and evolutionary biologist',
+      culture: 'hostile cultural anthropologist and systems thinker',
+    },
+  },
+  {
+    n: 3,
+    name: 'Reconcile',
+    writesTo: 'register', // see src/lib/craft/register.ts's graduateFromRun()
+  },
+];
+
 /** POSSIBILITY + LICENCE — the two of the canonical prompt's 18 fields that `ladder + axes + gates +
  *  bands + register` quietly dropped through v3.1 (design §3.2, the "self-caught silent loss"). Option
  *  text and field content sourced verbatim from weir-scoring-prompt-v2.md's own POSSIBILITY/LICENCE
@@ -237,8 +297,9 @@ export const WEIR_SCIENCE: CraftSystem = {
     ]),
     SCORED_MATRIX_BANDS,
     WEIR_SCIENCE_FIELDS,
-    // register(licence ledger) + passes(3) still land in Phase 4 — see the module comment above.
   ],
+  register: WEIR_LICENCE_REGISTER,
+  passes: WEIR_SCIENCE_PASSES,
   // Verbatim from weir-scoring-prompt-v2.md's "Rules" section plus its opening-paragraph instruction
   // ("Prefer deriving from an existing root licence over granting a new one") — this is the doc the
   // design's §3.11 example rules list was itself drawn from.
@@ -287,6 +348,56 @@ const LEGUIN_HANDSHAKE_RULE: Precondition = {
   rationaleRef: 'leguin-coherence-lens.md Part Six (Derivation Order) and Part Nine (interlock with Weir)',
 };
 
+/** The culture ledger (design §3.7/§4, leguin-coherence-lens.md Part Ten: "write it to the culture's
+ *  ledger — one row per root fact, listing everything that derives from it and every declared break
+ *  against it. This ledger is the twin of the Weir licence ledger."). Columns are exactly that
+ *  sentence, and match design §4's own abbreviated register example verbatim (`['Root fact','Derives',
+ *  'Declared breaks','Status']`) with the same `id`/`status` treatment as the licence register above.
+ *
+ *  `idPrefix`, `statusEnum` and `readableByGates` aren't given in design §4's abbreviated example (only
+ *  `id`/`label`/`columns` are shown there) — filled in here consistently with weir-science's register,
+ *  since both share the one locked `RegisterDef` shape: `idPrefix: 'R'` (a root FACT, not a licence —
+ *  Le Guin's own vocabulary), the same shared statusEnum (§3.7's is written as the general vocabulary,
+ *  not licence-specific), and `readableByGates: ['G2-But']` — Le Guin's G2 ("is any trait that breaks
+ *  the derived pattern named as a break and doing real work?") is the culture-side analogue of Weir's
+ *  G2 One-Lie ("is this deriving from an already-spent licence, or minting a new one unnecessarily?"),
+ *  the same "check the ledger before declaring a new break" question turned inward. No `budget` — the
+ *  Le Guin doc never caps the number of root facts a culture may declare, unlike Weir's 3-5 root ceiling. */
+const LEGUIN_CULTURE_REGISTER: RegisterDef = {
+  id: 'culture',
+  label: 'Culture ledger',
+  columns: [
+    { key: 'id', label: 'ID', type: 'id' },
+    { key: 'rootFact', label: 'Root fact', type: 'text' },
+    { key: 'derives', label: 'Derives', type: 'text' },
+    { key: 'declaredBreaks', label: 'Declared breaks', type: 'text' },
+    { key: 'status', label: 'Status', type: 'enum' },
+  ],
+  statusEnum: ['Accepted', 'Needs rework', 'Parked', 'Candidate', 'Closed', 'Declared error'],
+  idPrefix: 'R',
+  readableByGates: ['G2-But'],
+};
+
+/** The three-pass loop (design §4/§3.10), verbatim from leguin-coherence-lens.md Part Ten. Pass 1
+ *  carries no inline `prompt` for the same reason as weir-science's: leguin declares no
+ *  `promptOverride`, so `resolvePrompt(leguin)` already falls back to `generatePrompt(leguin)` — a
+ *  full rendering of its ladder/axes/gates/bands. Duplicating a second prompt string here would drift
+ *  from that the first time either one is edited. */
+const LEGUIN_PASSES: Pass[] = [
+  { n: 1, name: 'Derive' },
+  {
+    n: 2,
+    name: 'Red-team',
+    requireDifferentModel: true,
+    prompt: 'hostile anthropologist and hostile linguist',
+  },
+  {
+    n: 3,
+    name: 'Reconcile',
+    writesTo: 'register', // see src/lib/craft/register.ts's graduateFromRun()
+  },
+];
+
 export const LEGUIN: CraftSystem = {
   id: 'leguin',
   name: 'Le Guin Coherence Lens',
@@ -316,9 +427,9 @@ export const LEGUIN: CraftSystem = {
       { code: 'G5', label: 'Schism', test: 'Does the culture contain at least one real internal disagreement with consequences?' },
     ]),
     SCORED_MATRIX_BANDS,
-    // register(culture ledger) + passes(Derive/Red-team/Reconcile) land in Phase 4, same reasoning
-    // as weir-science's deferred fields/passes/register in Phase 1 — see the module comment above.
   ],
+  register: LEGUIN_CULTURE_REGISTER,
+  passes: LEGUIN_PASSES,
   publicDefault: true,
   applicability: [LEGUIN_HANDSHAKE_RULE],
 };
