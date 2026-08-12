@@ -33,11 +33,18 @@
  * existing could run a multi-stage generator the way WeirWorkshop.svelte already runs a single-pass
  * matrix. Per design §7, "Medium — new part, new renderer."
  *
+ * Phase 7 adds `parker-stone` — design §5's "not a Weir-shaped matrix": no ladder, no axes, no
+ * gates, just a `sequenceMetric` (design §3.2's computed ratio over adjacent joints) and a
+ * `spanLocator` (the located longest-dead-run), banded straight to a verdict. Like Phase 6, this
+ * needed new engine code (src/lib/craft/sequence.ts: parsing, density/ratio computation, dead-run
+ * location) and a new renderer (src/components/CraftSequence.svelte — the "annotated joints + dead
+ * run" view design §3.9's table names). Per design §7, "Medium."
+ *
  * Every entry here is `source: 'builtin'`, which per §3.13 means it ships with the app and never
  * syncs — user- and pack-authored entries (Phase 9+) are the ones that ride the outbox/pull engine.
  */
 
-import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart, PipelinePart, PipelineStage, Step } from './parts';
+import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, Joint, LadderPart, PipelinePart, PipelineStage, SequenceMetricPart, SpanLocatorPart, Step } from './parts';
 import { assertCategoryFailableConsistent, type CraftSystem, type Pass, type Precondition, type RegisterDef } from './types';
 
 /* The verdict mapping is identical across every scored matrix in the seed set — Weir's three modes
@@ -832,6 +839,71 @@ export const LEGUIN_DERIVATION: CraftSystem = {
   applicability: [LEGUIN_HANDSHAKE_RULE],
 };
 
+/* ---------------- Parker–Stone Causal-Density Test (Phase 7) ----------------
+ *
+ * design §5: MATRIX, but "not a Weir-shaped matrix" (§2) — no ladder, no six axes, no five gates.
+ * One computed ratio over adjacent joints (`sequenceMetric`) plus a located weak span
+ * (`spanLocator`), banded straight to a verdict. Content sourced verbatim from
+ * parker-stone-causal-density.md's own three-word vocabulary (THEREFORE / BUT / AND_THEN) and its
+ * Part Two reading table (0.90-1.00 taut / 0.70-0.89 solid / 0.50-0.69 sagging / <0.50 not yet a
+ * story), mapped onto the house ACCEPT/USABLE/REWRITE/CUT verdict names design §5's own code sample
+ * already gives.
+ *
+ * `scope: 'inter'` — explicit per design §3.2's own note that the stress test found frameworks whose
+ * "joint" is WITHIN an item (McKee's intra-scene value charge) rather than between adjacent items;
+ * parker-stone is the `inter` case, and declaring it is what keeps the part reusable for both.
+ *
+ * The engine (src/lib/craft/sequence.ts: computeMetric, locateLongestDeadRun, verdictFor) reads this
+ * system's OWN declared `joints[]` and `alive` flags rather than hardcoding THEREFORE/BUT/AND_THEN —
+ * so although parker-stone is the only system exercising `sequenceMetric` in the seed set, the code
+ * that runs it is not written as if it were the only one that ever will. */
+
+const PARKER_STONE_JOINTS: Joint[] = [
+  { code: 'THEREFORE', label: 'Therefore', alive: true },
+  { code: 'BUT', label: 'But', alive: true },
+  { code: 'AND_THEN', label: 'And then', alive: false },
+];
+
+/** design §5's own bands, verbatim. `gateOverride: 'REWORK'` is structurally present because
+ *  `BandsPart`'s locked shape (§3.2) requires it on every bands part — it is unreachable here since
+ *  parker-stone declares no `gates` part to ever trigger it, same as every other bands part in the
+ *  registry that happens to have no gate that fails. Nothing reads this override for parker-stone;
+ *  `verdictFor()` in sequence.ts bands the density directly. */
+const PARKER_STONE_BANDS: BandsPart = {
+  kind: 'bands',
+  gateOverride: 'REWORK',
+  bands: [
+    { min: 0.9, max: 1.0, verdict: 'ACCEPT', colour: 'green' },
+    { min: 0.7, max: 0.89, verdict: 'USABLE', colour: 'amber' },
+    { min: 0.5, max: 0.69, verdict: 'REWRITE', colour: 'red' },
+    { min: 0.0, max: 0.49, verdict: 'CUT', colour: 'red' },
+  ],
+};
+
+export const PARKER_STONE: CraftSystem = {
+  id: 'parker-stone',
+  name: 'Parker–Stone Causal-Density Test',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'matrix',
+  failable: true,
+  question: 'Is this a story, or a list of things that happen?',
+  target: { shape: 'sequence', types: ['outline', 'chapter', 'scene', 'prose', 'derivation'] },
+  output: 'metric+span',
+  parts: [
+    {
+      kind: 'sequenceMetric',
+      scope: 'inter',
+      joints: PARKER_STONE_JOINTS,
+      formula: 'alive/total',
+      secondary: { label: 'therefore : but', ratioOf: ['THEREFORE', 'BUT'] },
+    } satisfies SequenceMetricPart,
+    { kind: 'spanLocator', find: 'longest-run', of: 'dead' } satisfies SpanLocatorPart,
+    PARKER_STONE_BANDS,
+  ],
+  publicDefault: true,
+};
+
 export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [
   WEIR_IDEA,
   WEIR_PROSE,
@@ -846,6 +918,7 @@ export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [
   WEIR_PROTOCOL_SPECIES,
   WEIR_PROTOCOL_CULTURE,
   LEGUIN_DERIVATION,
+  PARKER_STONE,
 ];
 
 // Registration-time check (§3.3) — fails fast if a future edit adds an entry with an inconsistent
@@ -865,10 +938,10 @@ export function listSystems(): readonly CraftSystem[] {
 /** Grouped by `group`, then category — the shape the Craft Systems screen needs from its first
  *  version (design §3.9, and the "one UI risk, owned early" note in §7): an ungrouped wall of
  *  entries is the thing most likely to make the registry feel like a regression from three
- *  hardcoded lenses. Thirteen entries across four buckets (`weir`, `leguin`, `sanderson`, and
- *  harmon's ungrouped `—`) as of Phase 6 — four away from the full seventeen, and the grouping is
- *  already carrying real weight: `weir` alone now holds seven entries (three matrices, four
- *  generators) across two categories. */
+ *  hardcoded lenses. Fourteen entries across four buckets (`weir`, `leguin`, `sanderson`, and the
+ *  ungrouped `—` — now harmon AND parker-stone, design §5 gives parker-stone no `group`) as of
+ *  Phase 7 — three away from the full seventeen, and the grouping is already carrying real weight:
+ *  `weir` alone now holds seven entries (three matrices, four generators) across two categories. */
 export function listSystemsGrouped(): Map<string, CraftSystem[]> {
   const out = new Map<string, CraftSystem[]>();
   for (const system of BUILTIN_SYSTEMS) {

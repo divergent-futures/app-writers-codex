@@ -12,7 +12,7 @@
  * generation otherwise. "Generation is the floor, not the ceiling" (§3.11).
  */
 
-import type { AxesPart, BandsPart, FieldsPart, GatesPart, LadderPart, StepsPart } from './parts';
+import type { AxesPart, BandsPart, FieldsPart, GatesPart, LadderPart, SequenceMetricPart, SpanLocatorPart, StepsPart } from './parts';
 import type { CraftSystem } from './types';
 
 function section(title: string, body: string): string {
@@ -61,6 +61,31 @@ function stepsSection(part: StepsPart): string {
   return section('STEPS', `${note} ${completenessNote}\n${lines.join('\n')}`);
 }
 
+/** Phase 7 — parker-stone-causal-density.md's own vocabulary, rendered generically from whatever
+ *  joints[] the system declares (not hardcoded to THEREFORE/BUT/AND_THEN), per the same reuse
+ *  reasoning as src/lib/craft/sequence.ts's engine functions. `scope` changes the instruction from
+ *  "between each pair of items" to "within one item" — the distinction the design's stress test
+ *  found missing (§3.2: "one part name was covering two incompatible things"). */
+function sequenceMetricSection(part: SequenceMetricPart): string {
+  const lines = part.joints.map((j) => `- ${j.code} — ${j.label}${j.alive ? ' (alive — counts toward density)' : ' (dead — does NOT count)'}`);
+  const scopeNote = part.scope === 'inter' ? 'between each adjacent pair of items' : 'within a single item, from its start to its end';
+  const secondary = part.secondary
+    ? `\n\nAlso report the ${part.secondary.label} ratio — the count of ${part.secondary.ratioOf[0]} against the count of ${part.secondary.ratioOf[1]} — as a second number, independent of density.`
+    : '';
+  return section(
+    'JOINTS',
+    `List the items in order. Between each one, write the ONE HONEST connective ${scopeNote} — the one that is actually true, not the one you wish were true. Use exactly these codes:\n${lines.join('\n')}\n\nDensity = (alive joints) ÷ (total joints).${secondary}`,
+  );
+}
+
+/** "The span is the deliverable" (design §5) — always requested, never gated on the density number. */
+function spanLocatorSection(part: SpanLocatorPart): string {
+  return section(
+    'WEAK SPAN',
+    `Find the longest CONSECUTIVE run of ${part.of} joints and report exactly where it starts and ends (by item number, counting from 1). This located run is the repair priority regardless of the overall number — report it even when the density is high.`,
+  );
+}
+
 /** Renders a competent prompt from `system.parts` alone. This is the floor every registered
  *  instrument gets for free, including ones nobody has hand-tuned. See `resolvePrompt()` below for
  *  the function call sites should actually use. */
@@ -78,9 +103,13 @@ export function generatePrompt(system: CraftSystem): string {
     else if (part.kind === 'bands') sections.push(bandsSection(part));
     else if (part.kind === 'fields') sections.push(fieldsSection(part));
     else if (part.kind === 'steps') sections.push(stepsSection(part));
-    // sequenceMetric / spanLocator / pipeline / entries / notes have no generic prose rendering yet —
-    // the systems that use them (parker-stone, the generators) aren't registered until Phases 6-7, so
-    // there is nothing to prove this against yet. Extend here when one lands, not speculatively now.
+    else if (part.kind === 'sequenceMetric') sections.push(sequenceMetricSection(part));
+    else if (part.kind === 'spanLocator') sections.push(spanLocatorSection(part));
+    // pipeline / entries / notes still have no generic prose rendering here — `pipeline` systems
+    // build their own per-stage prompts directly from PipelineStage.prompt (see pipeline.ts's
+    // buildStagePrompt), never through this generic scaffold, so there is nothing to render for a
+    // system-level prompt; `entries`/`notes` aren't scored material at all. Extend here only if a
+    // future system's shape actually needs it.
   }
 
   if (system.rules?.length) {
@@ -98,10 +127,25 @@ export function generatePrompt(system: CraftSystem): string {
   if (has.has('gates')) outputParts.push('each gate PASS/FAIL with a one-line reason');
   if (has.has('fields')) outputParts.push('each field value');
   if (has.has('steps')) outputParts.push('each step, present or absent, and who/what fills it');
+  if (has.has('sequenceMetric')) outputParts.push('the beat list with the connective before each one, then density (and any secondary ratio)');
+  if (has.has('spanLocator')) outputParts.push('the longest dead run, located by item number');
   outputParts.push(has.has('bands') ? 'VERDICT' : 'a short summary of what this run found');
   outputParts.push('the single highest-leverage fix, specific to this material');
 
   sections.push(section('OUTPUT FORMAT', `Return, in order: ${outputParts.join(' · ')}.`));
+
+  // A `sequenceMetric` system needs its beats/joints round-tripped structurally, not just described
+  // in prose (see src/lib/craft/sequence.ts's parseSequenceResult) — same reasoning as the legacy
+  // Weir prompts' own JSON_TAIL (src/lib/weir/prompts.ts), generalised here so any future
+  // sequenceMetric system gets round-tripping for free, not just parker-stone.
+  if (has.has('sequenceMetric')) {
+    sections.push(
+      section(
+        'RESULT BLOCK',
+        `FINALLY — after everything above, output ONE fenced \`\`\`json code block as the very LAST thing in your reply, in exactly this shape:\n\n\`\`\`json\n{ "beats": ["…", "…"], "joints": ["…", "…"], "fix": "…" }\n\`\`\`\n\n"joints" must have exactly one fewer entry than "beats" — one connective between each adjacent pair, using the exact codes listed above.`,
+      ),
+    );
+  }
 
   return sections.join('\n\n');
 }
