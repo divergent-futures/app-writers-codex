@@ -16,13 +16,20 @@
  *   - registerRows   : Craft Registry register rows (licence ledger, culture ledger, ...), keyed by id
  *                      (design §3.7, Phase 4). Local-only, same reasoning as craftRuns above — no
  *                      worker endpoint exists yet to receive one. Brand-new data, so no backfill step.
+ *   - userCraftSystems : user-authored CraftSystem instruments (design §3.12, Phase 9), keyed by id.
+ *                      NOT projectId-scoped — an instrument definition is global to the local library,
+ *                      the same way `BUILTIN_SYSTEMS` in registry.ts is a flat list, not per-project
+ *                      data (design §3.7's own distinction: "schema is global; rows are per-project
+ *                      data" — a user CraftSystem is the schema-shaped half of that split, not the row
+ *                      half). Local-only for now, same reasoning as craftRuns/registerRows above — see
+ *                      the v6 upgrade comment below.
  *
  * `idb` is isolated to this file so the store engine stays swappable.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { migrateWeirScoreToCraftRun } from './craft/migrate';
-import type { CraftRun, RegisterRow } from './craft/types';
+import type { CraftRun, CraftSystem, RegisterRow } from './craft/types';
 import { DEMO } from './mode';
 import type { ProjectData, ReferencePack } from './schema';
 import type { GateResult, Verdict, WeirMode } from './weir/verdict';
@@ -100,12 +107,13 @@ interface CodexDB extends DBSchema {
   weir: { key: string; value: WeirScoreRecord };
   craftRuns: { key: string; value: CraftRun };
   registerRows: { key: string; value: RegisterRow };
+  userCraftSystems: { key: string; value: CraftSystem };
 }
 
 // The read-only demo gets its OWN database. Same origin, different store — so a visitor clicking
 // through /try can never seed into, read, or overwrite a real library sitting in this browser.
 const DB_NAME = DEMO ? 'writers-codex-demo' : 'writers-codex';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let _db: Promise<IDBPDatabase<CodexDB>> | null = null;
 
@@ -147,6 +155,10 @@ function db(): Promise<IDBPDatabase<CodexDB>> {
         // v5: Craft Registry register rows (Phase 4, design §3.7). Brand-new data — nothing to
         // backfill, unlike craftRuns' one-time migration from `weir` above.
         if (!d.objectStoreNames.contains('registerRows')) d.createObjectStore('registerRows', { keyPath: 'id' });
+
+        // v6: user-authored Craft Registry instruments (Phase 9, design §3.12). Brand-new data —
+        // nothing to backfill. Not projectId-scoped, so no per-project key — see the module comment.
+        if (!d.objectStoreNames.contains('userCraftSystems')) d.createObjectStore('userCraftSystems', { keyPath: 'id' });
       },
     });
   }
@@ -442,6 +454,33 @@ export async function listRegisterRows(projectId: string, registerId: string): P
     cursor = await cursor.continue();
   }
   return out.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/* ---------------- user-authored Craft Registry instruments (Phase 9, design §3.12) ----------------
+ *
+ * Local-only, same reasoning as the craftRuns/registerRows blocks above: design §3.13 wants
+ * `craft_systems` where `source = 'user'` to sync as a peer table, but no worker endpoint exists yet
+ * to receive one. When a later phase wires worker/craft.ts + a `craft_systems` push bucket, add
+ * `enqueue(...)` calls here the way putWeirScore does, and add 'userCraftSystems' to `OutboxStore`.
+ * Do not add either half without the other. */
+
+export async function getUserCraftSystem(id: string): Promise<CraftSystem | undefined> {
+  return (await db()).get('userCraftSystems', id);
+}
+
+export async function putUserCraftSystem(system: CraftSystem): Promise<void> {
+  await (await db()).put('userCraftSystems', system);
+}
+
+export async function deleteUserCraftSystem(id: string): Promise<void> {
+  await (await db()).delete('userCraftSystems', id);
+}
+
+/** Every user-authored instrument in this local library, most recently confirmed first. Not
+ *  projectId-scoped — see the module comment on why this store has no per-project key. */
+export async function listUserCraftSystems(): Promise<CraftSystem[]> {
+  const all = await (await db()).getAll('userCraftSystems');
+  return all.sort((a, b) => (b.provenance?.confirmedAt ?? 0) - (a.provenance?.confirmedAt ?? 0));
 }
 
 /* ---------------- reference packs (shared) ---------------- */
