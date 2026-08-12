@@ -6,6 +6,7 @@
   import Codex from './components/Codex.svelte';
   import SyncStatus from './components/SyncStatus.svelte';
   import WeirWorkshop from './components/WeirWorkshop.svelte';
+  import CraftGenerator from './components/CraftGenerator.svelte';
   import DemoBanner from './components/DemoBanner.svelte';
 
   let ready = $state(false);
@@ -31,6 +32,7 @@
   {/if}
   {#if !DEMO}
     <WeirWorkshop />
+    <CraftGenerator />
   {/if}
 {:else}
   <div class="boot">Loading your library…</div>

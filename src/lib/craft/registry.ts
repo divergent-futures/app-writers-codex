@@ -22,11 +22,22 @@
  * was — `steps` already existed in parts.ts (declared at Phase 1, unused until now, per that file's
  * own "cheap now, expensive to retrofit" rationale) and prompt.ts's stepsSection already renders it.
  *
+ * Phase 6 adds the registry's first `category: 'generator'` entries — `weir-protocol-tech/world/
+ * species/culture` and `leguin-derivation` — the five derivation protocols design §1.2 found already
+ * written in prose (weir-process.md's four protocols; leguin-coherence-lens.md Part Six) with
+ * "nowhere to live." Each is one `pipeline` part: an ordered list of stages, each with its own prompt
+ * (not generated from other parts — see src/lib/craft/pipeline.ts), that PRODUCES material rather than
+ * judging it (`output: 'artifact'`, not `'verdict'`). This is the first phase needing new engine code
+ * beyond the registry entries themselves — pipeline.ts (stage-prompt assembly, staleness, artifact
+ * construction) and a new stage-runner UI (src/components/CraftGenerator.svelte), since nothing
+ * existing could run a multi-stage generator the way WeirWorkshop.svelte already runs a single-pass
+ * matrix. Per design §7, "Medium — new part, new renderer."
+ *
  * Every entry here is `source: 'builtin'`, which per §3.13 means it ships with the app and never
  * syncs — user- and pack-authored entries (Phase 9+) are the ones that ride the outbox/pull engine.
  */
 
-import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart, Step } from './parts';
+import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart, PipelinePart, PipelineStage, Step } from './parts';
 import { assertCategoryFailableConsistent, type CraftSystem, type Pass, type Precondition, type RegisterDef } from './types';
 
 /* The verdict mapping is identical across every scored matrix in the seed set — Weir's three modes
@@ -624,6 +635,203 @@ export const SANDERSON_PPP: CraftSystem = {
   publicDefault: true,
 };
 
+/* ---------------- Weir's four derivation protocols + Le Guin's derivation (Phase 6) ----------------
+ *
+ * design §1.2 / §1.5: five generators, `category: 'generator' | target: element | output: artifact |
+ * pipeline(n)`. Content sourced verbatim from weir-process.md's own numbered "Order of operations"
+ * for Protocols A-D, and leguin-coherence-lens.md Part Six's numbered derivation order (its "Step 0 —
+ * inherit the roots" is NOT one of the 9 pipeline stages below — it's a precondition on prior Weir
+ * output, the same role the existing `LEGUIN_HANDSHAKE_RULE` applicability warning already names, not
+ * something this generator itself derives).
+ *
+ * Every stage's `inputsFrom` is its immediate predecessor only ([n-1]) — simple and uniform rather
+ * than hand-picking a bespoke dependency graph per protocol, and defensible because every source doc
+ * insists on the same discipline in the same words: "never invent out of order." `destination:
+ * 'worldbuilding'` throughout — the only per-entity content store the app has (src/lib/db.ts's
+ * `putWorldbuilding`) — with a `type` naming what that specific stage contributes. `invalidatesDownstream:
+ * true` on every stage but the last: editing an earlier stage's output should flag every later stage
+ * that already ran as stale (see src/lib/craft/pipeline.ts's `staleAfterEdit`), per design §3.5's own
+ * artifact-staleness rule. */
+
+function protocolStage(
+  n: number,
+  name: string,
+  prompt: string,
+  producesType: string,
+  opts?: { last?: boolean },
+): PipelineStage {
+  return {
+    n,
+    name,
+    prompt,
+    inputsFrom: n > 1 ? [n - 1] : undefined,
+    produces: { type: producesType, destination: 'worldbuilding' },
+    invalidatesDownstream: !opts?.last,
+  };
+}
+
+/** Protocol A — Tech (weir-process.md, "Technology: effect wanted → nearest real physics → licence
+ *  (if any) → energy budget → constraint → cost → failure mode → consequence"). 8 stages. */
+const WEIR_PROTOCOL_TECH_STAGES: PipelineStage[] = [
+  protocolStage(1, 'Effect wanted', 'State the effect you need, in story terms, in one sentence. What does it let a character or the plot do?', 'effect'),
+  protocolStage(2, 'Nearest real physics', 'Find the nearest real physics — search, don\'t recall. Name the specific phenomenon, mechanism, or paper this could plausibly anchor to.', 'physics-anchor'),
+  protocolStage(3, 'Licence (if any)', 'Does this stay inside real/extrapolated/speculative science, or does it need a declared impossibility (T3)? If a licence, name the exact law it breaks, and check the project\'s licence ledger first — derive from an existing root before minting a new one.', 'licence-declaration'),
+  protocolStage(4, 'Energy budget', 'Build the energy, mass, and information budget with actual numbers. Expect it to fail — that is the budget working, not a mistake.', 'energy-budget'),
+  protocolStage(5, 'Constraint', 'What constraint does the budget impose? Where does the arithmetic itself — not narrative convenience — set the limit?', 'constraint'),
+  protocolStage(6, 'Cost', 'What does using this cost, every time — energy, material, time, risk, or something else?', 'cost'),
+  protocolStage(7, 'Failure mode', 'How does it fail, degrade, or misfire? What does that failure actually look like on the page?', 'failure-mode'),
+  protocolStage(8, 'Consequence', 'Second- and third-order effects: if this exists, what else must now be true of the economy, biology, or politics around it?', 'consequence', { last: true }),
+];
+
+export const WEIR_PROTOCOL_TECH: CraftSystem = {
+  id: 'weir-protocol-tech',
+  name: 'Weir Protocol A — Technology',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'generator',
+  failable: false,
+  group: 'weir',
+  question: 'Derive a technology or capability from real physics outward, in order.',
+  target: { shape: 'element', types: ['worldbuilding', 'system'] },
+  output: 'artifact',
+  parts: [{ kind: 'pipeline', stages: WEIR_PROTOCOL_TECH_STAGES } satisfies PipelinePart],
+  publicDefault: true,
+};
+
+/** Protocol B — Worlds (weir-process.md Part Seven, exoplanet-first). 10 stages, full "Order of
+ *  operations" content, not the compressed derivation-order line. */
+const WEIR_PROTOCOL_WORLD_STAGES: PipelineStage[] = [
+  protocolStage(1, 'Star', 'Choose the spectral class, mass, age, metallicity, and activity level. M-dwarfs are common and flare-prone; G-types are stable and rarer; K-types are the underrated sweet spot (stable, long-lived, wide habitable zones).', 'star'),
+  protocolStage(2, 'Orbital distance and insolation', 'Set the orbital distance. This sets equilibrium temperature, sets the habitable zone, and determines whether the planet is tidally locked (close-in worlds around small stars almost always are).', 'orbit'),
+  protocolStage(3, 'Mass and radius', 'From mass and radius, derive density and therefore composition — rocky, ocean, or mini-Neptune.', 'mass-radius'),
+  protocolStage(4, 'Gravity and escape velocity', 'Compute surface gravity and escape velocity. Escape velocity is the single most consequential number for the civilisation\'s technological ceiling.', 'gravity'),
+  protocolStage(5, 'Atmosphere retention', 'Work out atmosphere retention as a function of escape velocity, temperature, molecular weight, and stellar-wind stripping over gigayears. Light gases go first. Do not reach for Venus as a simple counter-example — its thick atmosphere is a runaway-greenhouse/failed-sequestration story, not a retention-physics one.', 'atmosphere'),
+  protocolStage(6, 'Magnetosphere', 'Decide whether the world has a magnetosphere (needs a molten conducting core and adequate rotation). Note this is a live debate, not settled science — an intrinsic field can arguably increase ion escape through polar outflow. If load-bearing in your plot, state which side of the argument you\'re writing.', 'magnetosphere'),
+  protocolStage(7, 'Rotation and tidal locking', 'Decide rotation and tidal-lock state. A locked world gets a terminator zone, extreme circulation, and a permanent night-side cold trap.', 'rotation'),
+  protocolStage(8, 'Axial tilt and seasonality', 'Set axial tilt and orbital eccentricity. No tilt plus a near-circular orbit means no seasons — and a species evolved there may be physiologically unable to survive one.', 'seasonality'),
+  protocolStage(9, 'Chemistry', 'Determine ocean composition, pH, salinity, mineral load, available redox couples, and the presence or absence of hydrocarbons. No hydrocarbons means no chemical rocketry — a technological ceiling imposed by geology, not failure.', 'chemistry'),
+  protocolStage(10, 'Observability check', 'What would this world look like in Earth\'s telescopes at that distance — transit depth, radial-velocity signature, atmospheric spectral lines? If your characters have telescopes, this determines what they knew before they arrived.', 'observability', { last: true }),
+];
+
+export const WEIR_PROTOCOL_WORLD: CraftSystem = {
+  id: 'weir-protocol-world',
+  name: 'Weir Protocol B — World',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'generator',
+  failable: false,
+  group: 'weir',
+  question: 'Derive a world exoplanet-first, star outward, in order.',
+  target: { shape: 'element', types: ['worldbuilding'] },
+  output: 'artifact',
+  parts: [{ kind: 'pipeline', stages: WEIR_PROTOCOL_WORLD_STAGES } satisfies PipelinePart],
+  publicDefault: true,
+};
+
+/** Protocol C — Species (weir-process.md Part Eight, biology derived from the world). 11 stages. */
+const WEIR_PROTOCOL_SPECIES_STAGES: PipelineStage[] = [
+  protocolStage(1, 'Energy source', 'Choose the energy source — photosynthesis-equivalent, chemosynthesis, predation, radiotrophy, or direct thermal. This sets the base of the food web and therefore the whole ecology\'s fragility.', 'energy-source'),
+  protocolStage(2, 'Medium', 'Choose the medium — water, atmosphere, regolith, vacuum, magma. This determines drag, buoyancy, heat transfer, and signal propagation.', 'medium'),
+  protocolStage(3, 'Gravity and pressure', 'Given the world\'s gravity and pressure, derive skeletal requirements, maximum body size, circulatory pressure, and escape velocity from the species\' own biological perspective.', 'gravity-pressure'),
+  protocolStage(4, 'Dominant sensory channel', 'This is the highest-leverage step. Ask: what information travels best in this medium? Light in a clear thin atmosphere favours eyes; sound in dense high-pressure gas favours hearing (and no eyes, if no light reaches the surface); pressure and chemistry in deep water favour lateral-line and chemoreception; electric fields in murky conductive water favour electroreception. Get this right and the species writes itself.', 'sensory-channel'),
+  protocolStage(5, 'Thermal and metabolic budget', 'Endotherm or ectotherm? How much energy per day? How long can they go without? What does their waste heat do to the environment?', 'metabolic-budget'),
+  protocolStage(6, 'Body plan and symmetry', 'Choose body plan and symmetry. Bilateral is an Earth accident of early chordates — radial, pentaradial, or asymmetric are all available, and symmetry propagates into mathematics, architecture, aesthetics, and number base.', 'body-plan'),
+  protocolStage(7, 'Lifecycle and timescale', 'Set lifespan, generation time, development rate, and senescence. A species that lives ten thousand years has a completely different relationship to risk, patience, and institutions than one that lives twelve.', 'lifecycle'),
+  protocolStage(8, 'Cognition', 'Distributed or centralised? Individual or collective? What does their sensory channel make easy to think about, and what does it make nearly impossible?', 'cognition'),
+  protocolStage(9, 'Communication', 'Choose modality, bandwidth, range, and — critically — whether it can be private. A species that communicates by broadcast light cannot whisper; a species that communicates by touch cannot lie at a distance. This single fact reshapes their entire ethics.', 'communication'),
+  protocolStage(10, 'Manipulators', 'Can they make tools, and what kind? A brilliant species with no fine manipulators has a hard technological ceiling and develops in a completely different direction.', 'manipulators'),
+  protocolStage(11, 'Technological ceiling', 'What does their physics forbid them? State it as arithmetic, not failure — e.g. deep gravity well plus water-based bodies plus no hydrocarbons equals no space programme.', 'tech-ceiling', { last: true }),
+];
+
+export const WEIR_PROTOCOL_SPECIES: CraftSystem = {
+  id: 'weir-protocol-species',
+  name: 'Weir Protocol C — Species',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'generator',
+  failable: false,
+  group: 'weir',
+  question: 'Derive a species\' biology from its world, in order.',
+  target: { shape: 'element', types: ['worldbuilding', 'character'] },
+  output: 'artifact',
+  parts: [{ kind: 'pipeline', stages: WEIR_PROTOCOL_SPECIES_STAGES } satisfies PipelinePart],
+  publicDefault: true,
+};
+
+/** Protocol D — Culture, Religion and Ethics (weir-process.md Part Nine). 8 stages — one fewer than
+ *  Le Guin's own derivation below, which adds an explicit "what is scarce" step Weir's version folds
+ *  into the final resource-structure stage instead; both are sourced verbatim from their own docs, so
+ *  the difference is faithful, not an inconsistency to reconcile. */
+const WEIR_PROTOCOL_CULTURE_STAGES: PipelineStage[] = [
+  protocolStage(1, 'What kills them', 'Name the dominant mortality source. It shapes the dominant fear, which shapes the dominant myth — predation, cold, starvation, and a hostile star each produce a different theology.', 'mortality'),
+  protocolStage(2, 'What they cannot perceive', 'Name the species\' blind channel. That blindness becomes the seat of the sacred, the supernatural, or the unknowable.', 'blind-channel'),
+  protocolStage(3, 'What they cannot control', 'Name what they cannot control — weather, tides, the star, the depth. The uncontrollable becomes the divine or the fated.', 'uncontrollable'),
+  protocolStage(4, 'Lifespan vs institutional time', 'A short-lived species builds institutions to outlive itself and venerates continuity. A long-lived species IS the institution and venerates change, or stagnates. Decide which, and whether their religion is ancestral, prophetic, or cyclical.', 'lifespan-institutions'),
+  protocolStage(5, 'Communication privacy', 'Can they lie, whisper, or keep secrets? This determines whether their ethics are built around honesty, consent, exposure, or concealment — and whether "confession" or "witness" is even a coherent concept.', 'comm-privacy'),
+  protocolStage(6, 'Reproduction and kinship', 'Who raises the young, how many, at what cost, with what certainty of parentage? Nearly every kinship taboo traces to this.', 'kinship'),
+  protocolStage(7, 'Resource structure', 'Name what is scarce or abundant, and of what. This determines property, hospitality norms, and what counts as theft.', 'resources'),
+  protocolStage(
+    8,
+    'Myth, ritual, taboo, institution, schism',
+    'Only now: derive myth, ritual, taboo, and institution from everything above — and give the culture at least one real internal disagreement with consequences. A species with a single unified belief is a hat, not a civilisation. Watch for the two traps: the planet of hats (one culture, one belief, one accent) and the morality import (ethics that are secretly 21st-century Earth\'s, unearned).',
+    'myth-ritual-schism',
+    { last: true },
+  ),
+];
+
+export const WEIR_PROTOCOL_CULTURE: CraftSystem = {
+  id: 'weir-protocol-culture',
+  name: 'Weir Protocol D — Culture, Religion and Ethics',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'generator',
+  failable: false,
+  group: 'weir',
+  question: 'Derive a culture and its religion from a species\' biology and world, in order.',
+  target: { shape: 'element', types: ['worldbuilding'] },
+  output: 'artifact',
+  parts: [{ kind: 'pipeline', stages: WEIR_PROTOCOL_CULTURE_STAGES } satisfies PipelinePart],
+  publicDefault: true,
+};
+
+/** Le Guin's derivation order (leguin-coherence-lens.md Part Six). 9 stages — "Step 0, inherit the
+ *  roots" is deliberately NOT stage 1 here; it's a precondition on Weir output (same Handshake Rule
+ *  already declared as `leguin`'s applicability warning), not something this generator itself
+ *  produces. Stages 1-9 below are the doc's own numbered list starting after that inheritance step. */
+const LEGUIN_DERIVATION_STAGES: PipelineStage[] = [
+  protocolStage(1, 'What kills them', 'The dominant mortality source shapes the dominant fear, which shapes the dominant myth. Predation, cold, starvation, the star, each other — each produces a different theology.', 'mortality'),
+  protocolStage(2, 'What is scarce', 'Name the single scarcest resource. It will fingerprint the greeting, the law, the funeral, and the definition of theft.', 'scarcity'),
+  protocolStage(3, 'What they cannot perceive', 'Every species has a blind channel. That blindness becomes the seat of the sacred, the supernatural, or the unknowable.', 'blind-channel'),
+  protocolStage(4, 'What they cannot control', 'Weather, tides, the star, the depth, the cycle. The uncontrollable becomes the divine or the fated.', 'uncontrollable'),
+  protocolStage(5, 'Lifespan vs institutional time', 'Short-lived: build institutions to outlive the self, venerate continuity, ancestral religion. Long-lived: BE the institution, venerate change or ossify, prophetic or cyclical religion.', 'lifespan-institutions'),
+  protocolStage(6, 'Communication privacy', 'Can they lie, whisper, keep secrets? This single fact reshapes the entire ethics of honesty, consent, confession, and exposure.', 'comm-privacy'),
+  protocolStage(7, 'Kinship and reproduction', 'Who raises the young, how many, at what cost, with what certainty of parentage? Nearly every kinship taboo traces here.', 'kinship'),
+  protocolStage(8, 'Resource structure', 'Scarcity or abundance, and of what. Determines property, hospitality, and what counts as theft.', 'resources'),
+  protocolStage(
+    9,
+    'Myth, ritual, taboo, institution, schism, aesthetics, law',
+    'Only now: derive myth, ritual, taboo, institution, schism, aesthetics, and law from everything above. Show the arrow chain from each cultural fact back to a root; where a fact needs a deliberate break from the roots, declare it rather than smuggling it in.',
+    'myth-ritual-schism',
+    { last: true },
+  ),
+];
+
+export const LEGUIN_DERIVATION: CraftSystem = {
+  id: 'leguin-derivation',
+  name: 'Le Guin Derivation',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'generator',
+  failable: false,
+  group: 'leguin',
+  question: 'Derive a people\'s culture from its Weir-grounded biology and world, in order.',
+  target: { shape: 'element', types: ['species', 'culture', 'world'] },
+  output: 'artifact',
+  parts: [{ kind: 'pipeline', stages: LEGUIN_DERIVATION_STAGES } satisfies PipelinePart],
+  publicDefault: true,
+  applicability: [LEGUIN_HANDSHAKE_RULE],
+};
+
 export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [
   WEIR_IDEA,
   WEIR_PROSE,
@@ -633,6 +841,11 @@ export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [
   HARMON,
   SANDERSON_LAWS,
   SANDERSON_PPP,
+  WEIR_PROTOCOL_TECH,
+  WEIR_PROTOCOL_WORLD,
+  WEIR_PROTOCOL_SPECIES,
+  WEIR_PROTOCOL_CULTURE,
+  LEGUIN_DERIVATION,
 ];
 
 // Registration-time check (§3.3) — fails fast if a future edit adds an entry with an inconsistent
@@ -652,9 +865,10 @@ export function listSystems(): readonly CraftSystem[] {
 /** Grouped by `group`, then category — the shape the Craft Systems screen needs from its first
  *  version (design §3.9, and the "one UI risk, owned early" note in §7): an ungrouped wall of
  *  entries is the thing most likely to make the registry feel like a regression from three
- *  hardcoded lenses. Eight entries across four buckets (`weir`, `leguin`, `sanderson`, and harmon's
- *  ungrouped `—`) as of Phase 5 — still small enough to eyeball, but the grouping exists now
- *  precisely so it doesn't need retrofitting once the count climbs toward the full seventeen. */
+ *  hardcoded lenses. Thirteen entries across four buckets (`weir`, `leguin`, `sanderson`, and
+ *  harmon's ungrouped `—`) as of Phase 6 — four away from the full seventeen, and the grouping is
+ *  already carrying real weight: `weir` alone now holds seven entries (three matrices, four
+ *  generators) across two categories. */
 export function listSystemsGrouped(): Map<string, CraftSystem[]> {
   const out = new Map<string, CraftSystem[]>();
   for (const system of BUILTIN_SYSTEMS) {
