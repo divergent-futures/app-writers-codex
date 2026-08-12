@@ -15,11 +15,18 @@
  * factored out rather than duplicated: Le Guin is *literally* running through the same code Weir
  * does, which is the whole point of the phase.
  *
+ * Phase 5 adds three `steps`-shaped lenses — `harmon`, `sanderson-laws`, `sanderson-ppp` — the first
+ * entries in the registry that aren't ladder/axes/gates/bands at all. All three are `output:
+ * 'completeness'`, not `'verdict'`: none of them can fail an element, they report which named slots
+ * are present. Per design §7 this phase is "low risk," and it is data-only in the same sense Phase 2
+ * was — `steps` already existed in parts.ts (declared at Phase 1, unused until now, per that file's
+ * own "cheap now, expensive to retrofit" rationale) and prompt.ts's stepsSection already renders it.
+ *
  * Every entry here is `source: 'builtin'`, which per §3.13 means it ships with the app and never
  * syncs — user- and pack-authored entries (Phase 9+) are the ones that ride the outbox/pull engine.
  */
 
-import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart } from './parts';
+import type { AxesPart, AxisBand, BandsPart, FieldsPart, GatesPart, LadderPart, Step } from './parts';
 import { assertCategoryFailableConsistent, type CraftSystem, type Pass, type Precondition, type RegisterDef } from './types';
 
 /* The verdict mapping is identical across every scored matrix in the seed set — Weir's three modes
@@ -474,7 +481,159 @@ export const SANDERSON_BOARD: CraftSystem = {
   publicDefault: true,
 };
 
-export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [WEIR_IDEA, WEIR_PROSE, WEIR_SCIENCE, LEGUIN, SANDERSON_BOARD];
+/* ---------------- Harmon Story Circle (Phase 5) ----------------
+ *
+ * design §1.5: `harmon` | — | lens | element | completeness | steps(8) + scales. LENS, not MATRIX —
+ * the doc is explicit the Circle is diagnostic, not a pass/fail gate: "if a character's arc is
+ * genuinely complete in seven steps... that's allowed. The Circle is a diagnostic tool, not a
+ * recipe." Hence `completeness: 'subset'`, not `'all'` — the same declare-don't-default lesson §3.3
+ * draws from Propp's 31 functions applies here: a framework that explicitly disclaims needing every
+ * slot filled must not be registered as if it does.
+ *
+ * `ordered: true` — the Circle's eight steps have a real sequence (the descent 1→5, the ascent 5→8;
+ * the doc's own diagnostic step 3 is "check the connections... each step should CAUSE the next"),
+ * even though the doc also notes a specific step can occur out of its usual position ("if their step
+ * 6 happens before step 5, that's allowed") — `ordered` describes the framework's normal shape, the
+ * same way `steps.completeness:'subset'` already covers exceptions to full presence.
+ *
+ * `scales` names the four levels dan-harmon-story-circle.md says the same eight steps nest at:
+ * "scene, chapter, book, series — all eight steps at every scale."
+ *
+ * Content (step names + prompts) drawn from the doc's own Quick-Reference Card and per-step
+ * "Diagnostic questions," condensed to one line each — not the design doc's shorter table summary. */
+
+const HARMON_STEPS: Step[] = [
+  { n: 1, name: 'You', prompt: 'A character in a zone of comfort. What is their routine, and what have they stopped questioning?' },
+  { n: 2, name: 'Need', prompt: 'They want something, stated in one sentence. Is this the surface want, or the deep need they don\'t know yet?' },
+  { n: 3, name: 'Go', prompt: 'They enter an unfamiliar situation. What do they leave behind to get there?' },
+  { n: 4, name: 'Search', prompt: 'They adapt to it. What are the try-fail cycles that take them from tourist to capable participant?' },
+  { n: 5, name: 'Find', prompt: 'They get what they wanted — the apparent victory. Is it the surface goal from step 2, or a deeper version of it?' },
+  { n: 6, name: 'Take', prompt: 'They pay the price for it. Does the cost actually land here, or did they get step 5 for free?' },
+  { n: 7, name: 'Return', prompt: 'They go back to where they started. What do they bring back, and what do they understand now that they didn\'t?' },
+  { n: 8, name: 'Change', prompt: 'Having changed. Is the character at step 8 recognisably different from step 1 — and did the journey between them earn it?' },
+];
+
+/** design §3.6's own worked example, verbatim — Harmon "never fails" a static entity so much as it
+ *  asks the wrong question of one; this is the category error `framework-analysis-pantheon-shard.md`
+ *  had to correct in writing (design §2: "pantheon entities ARE characters, so type matching offers
+ *  Story Circle on the Clown — the exact category error..."). Warn-only per §3.6 — this app never
+ *  blocks; Sanderson's sliders remain the correct lens for a static entity, so the warning names the
+ *  alternative rather than just refusing. */
+const HARMON_NON_TRANSFORMING_WARNING: Precondition = {
+  when: 'entity.nonTransforming',
+  severity: 'warn',
+  message:
+    'This entity is marked as non-transforming. The Story Circle tracks transformation — applying it here is the category error corrected in framework-analysis-pantheon-shard.md. Sanderson\'s sliders describe static entities correctly; the Circle does not.',
+  rationaleRef: 'framework-analysis-pantheon-shard.md',
+};
+
+export const HARMON: CraftSystem = {
+  id: 'harmon',
+  name: "Dan Harmon's Story Circle",
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'lens',
+  failable: false,
+  question: 'Has this character been on a complete journey?',
+  target: { shape: 'element', types: ['character'] },
+  output: 'completeness',
+  parts: [
+    {
+      kind: 'steps',
+      ordered: true,
+      completeness: 'subset',
+      steps: HARMON_STEPS,
+      scales: ['scene', 'chapter', 'book', 'series'],
+    },
+  ],
+  publicDefault: true,
+  applicability: [HARMON_NON_TRANSFORMING_WARNING],
+};
+
+/* ---------------- Sanderson's Three Laws + Promise/Progress/Payoff (Phase 5) ----------------
+ *
+ * design §1.7: "Sanderson is three instruments with three targets: the Mixing Board (sliders on
+ * characters), the Three Laws (a checklist on SYSTEMS — the doc explicitly generalises to politics,
+ * tech, economics, biology), and Promise/Progress/Payoff (plot at any scale)." §1.5 registers both
+ * as `lens | steps(3) | completeness`, same shape family as harmon above, different target for each. */
+
+/** `completeness: 'all'` (unlike harmon's 'subset' above) — sanderson-framework.md's own diagnostic
+ *  is unconditional: "If you can't answer all three quickly for any major system, the system is
+ *  under-developed." No step here is optional the way a Circle step can be skipped. `ordered: false`
+ *  — nothing in the doc sequences the three laws; a system can be checked against Law 2 before Law 1. */
+const SANDERSON_LAWS_STEPS: Step[] = [
+  { n: 1, name: 'Clarity equals utility', prompt: 'How well would the reader understand this system\'s rules? The clearer it is, the more it can solve problems without feeling like a cheat.' },
+  { n: 2, name: 'Limitations are more interesting than powers', prompt: 'What can it not do, what does it cost, and what defeats it? If you can\'t answer all three, the system is under-developed.' },
+  { n: 3, name: 'Expand before you add', prompt: 'Before inventing something new, could this be solved by extrapolating, interconnecting, or streamlining what already exists?' },
+];
+
+export const SANDERSON_LAWS: CraftSystem = {
+  id: 'sanderson-laws',
+  name: "Sanderson's Three Laws",
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'lens',
+  failable: false,
+  group: 'sanderson',
+  question: 'Does this system have depth — clarity, limitations, and restraint?',
+  target: { shape: 'element', types: ['system', 'magic', 'technology', 'politics', 'economics', 'biology'] },
+  output: 'completeness',
+  parts: [
+    {
+      kind: 'steps',
+      ordered: false,
+      completeness: 'all',
+      steps: SANDERSON_LAWS_STEPS,
+    },
+  ],
+  publicDefault: true,
+};
+
+/** `ordered: true` — Promise necessarily precedes Progress precedes Payoff structurally (you cannot
+ *  pay off a promise not yet made). `completeness: 'all'` — sanderson-framework.md frames this as a
+ *  structure that "works at every scale — book, act, scene," not a checklist where a scale may
+ *  legitimately skip a step; a scene missing its payoff is an incomplete scene, not a valid variant
+ *  (contrast harmon's Circle, which explicitly permits a 7-step arc). Target is `sequence`, per design
+ *  §1.7 ("plot at any scale") and §1.5's `sanderson-ppp | ... | sequence | completeness | steps(3)` —
+ *  reuses parker-stone's target-type list (design §5) since both examine an ordered run of beats. */
+const SANDERSON_PPP_STEPS: Step[] = [
+  { n: 1, name: 'Promise', prompt: 'Genre, tone, and character promise, set in the opening. What kind of story is this, and what is this character sorely missing?' },
+  { n: 2, name: 'Progress', prompt: 'Does the reader FEEL forward motion, even where the plot doesn\'t literally advance? Name the try-fail-try cycles.' },
+  { n: 3, name: 'Payoff', prompt: 'Does the resolution land as surprising but inevitable, built from what the story already established — or does it cheat in from outside?' },
+];
+
+export const SANDERSON_PPP: CraftSystem = {
+  id: 'sanderson-ppp',
+  name: 'Sanderson — Promise, Progress, Payoff',
+  version: '1.0.0',
+  source: 'builtin',
+  category: 'lens',
+  failable: false,
+  group: 'sanderson',
+  question: 'Does this plot set up, sustain, and pay off what it promised?',
+  target: { shape: 'sequence', types: ['outline', 'chapter', 'scene', 'prose'] },
+  output: 'completeness',
+  parts: [
+    {
+      kind: 'steps',
+      ordered: true,
+      completeness: 'all',
+      steps: SANDERSON_PPP_STEPS,
+    },
+  ],
+  publicDefault: true,
+};
+
+export const BUILTIN_SYSTEMS: readonly CraftSystem[] = [
+  WEIR_IDEA,
+  WEIR_PROSE,
+  WEIR_SCIENCE,
+  LEGUIN,
+  SANDERSON_BOARD,
+  HARMON,
+  SANDERSON_LAWS,
+  SANDERSON_PPP,
+];
 
 // Registration-time check (§3.3) — fails fast if a future edit adds an entry with an inconsistent
 // category/failable pair, rather than letting it ship silently wrong.
@@ -493,9 +652,9 @@ export function listSystems(): readonly CraftSystem[] {
 /** Grouped by `group`, then category — the shape the Craft Systems screen needs from its first
  *  version (design §3.9, and the "one UI risk, owned early" note in §7): an ungrouped wall of
  *  entries is the thing most likely to make the registry feel like a regression from three
- *  hardcoded lenses. Five entries across three groups (`weir`, `leguin`, `sanderson`) as of Phase 3 —
- *  still small enough to eyeball, but the grouping exists now precisely so it doesn't need
- *  retrofitting once the count climbs toward the full seventeen. */
+ *  hardcoded lenses. Eight entries across four buckets (`weir`, `leguin`, `sanderson`, and harmon's
+ *  ungrouped `—`) as of Phase 5 — still small enough to eyeball, but the grouping exists now
+ *  precisely so it doesn't need retrofitting once the count climbs toward the full seventeen. */
 export function listSystemsGrouped(): Map<string, CraftSystem[]> {
   const out = new Map<string, CraftSystem[]>();
   for (const system of BUILTIN_SYSTEMS) {
