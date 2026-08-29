@@ -7,8 +7,8 @@
  */
 
 import type { ProjectData, ReferencePack } from '../schema';
-import { allProse, allWorldbuilding, getPack } from '../db';
-import { getActivePackId } from '../packs';
+import { allProse, allWorldbuilding } from '../db';
+import { mergedReference } from '../packs';
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
@@ -35,23 +35,26 @@ async function loadPrivateRefPack(): Promise<ReferencePack | null> {
   return _privateRefCache;
 }
 
-/* Resolution order: the reader's current choice, then downloaded packs, then the two bundled ones.
+/* Every downloaded pack at once, plus the bundled seed this project points at, merged into one set.
  *
- * The bundled pair are the offline seed — they keep the app non-empty on a first run with no
- * network. Everything else in the twelve-pack library is fetched on demand and cached in the
- * `packs` IndexedDB store (see lib/packs.ts). Bundling all twelve would put 9.2 MB of JSON into the
- * bundle and make a phone download eleven packs in order to read one. */
+ * This used to resolve a single pack — the reader's choice, else the project's — and show only that.
+ * A twelve-pack library read one pack at a time is a filing cabinet you can only open one drawer of:
+ * the tropes you want to compare are usually in two genres at once. So the set is the whole library
+ * and the Reference view filters it by pack. `packs.ts` memoises the merge; this is called on every
+ * save, and re-cloning 9 MB out of IndexedDB each time would be felt in the writing.
+ *
+ * The bundled pair are still the offline seed — they keep the app non-empty on a first run with no
+ * network. Everything else is fetched on demand and cached in the `packs` store. Bundling all twelve
+ * would put 9.2 MB of JSON into the bundle and make a phone download eleven packs to read one. */
 async function loadReferencePack(data: ProjectData): Promise<ReferencePack | null> {
-  const wantId = getActivePackId() || data.referencePackId;
-  if (!wantId) return null;
-
-  const downloaded = await getPack(wantId);
-  if (downloaded) return downloaded;
-
-  const [pub, priv] = await Promise.all([loadPublicRefPack(), loadPrivateRefPack()]);
-  if (pub && pub.id === wantId) return pub;
-  if (priv && priv.id === wantId) return priv;
-  return null;
+  const wantId = data.referencePackId;
+  return mergedReference(async () => {
+    if (!wantId) return null;
+    const [pub, priv] = await Promise.all([loadPublicRefPack(), loadPrivateRefPack()]);
+    if (pub && pub.id === wantId) return { ...pub, id: wantId };
+    if (priv && priv.id === wantId) return { ...priv, id: wantId };
+    return null;
+  }, wantId);
 }
 
 export async function hydrate(projectId: string, data: ProjectData): Promise<ProjectData> {

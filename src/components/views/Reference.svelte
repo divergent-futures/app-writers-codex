@@ -1,45 +1,112 @@
 <script lang="ts">
   import * as E from '../../lib/render/engine.js';
-  import type { ReferenceCollection } from '../../lib/schema';
-  import { listPacks, ensurePack, getActivePackId, setActivePackId, type PackChoice } from '../../lib/packs';
+  import type { ReferenceCollection, ReferencePackInfo } from '../../lib/schema';
+  import {
+    listPacks, ensurePack, refetchPack, removePack,
+    getHiddenPackIds, setHiddenPackIds, type PackChoice,
+  } from '../../lib/packs';
 
-  let { rev }: { rev: number } = $props();
+  let { rev, onPacksChange }: { rev: number; onPacksChange: () => Promise<void> } = $props();
 
   let kind = $state('all');
   let query = $state('');
   let cat = $state('');
 
-  /* The pack switcher. Packs are fetched on demand and cached in IndexedDB rather than bundled —
-   * all twelve would be 9.2 MB in the JS bundle, which a phone would pay on first load to read one.
-   * The choice lives in localStorage, not on the project, so switching packs to look something up
-   * never dirties the book or the sync outbox. */
+  /* The library. Packs are fetched on demand and cached in IndexedDB rather than bundled — all
+   * twelve would be 9.2 MB in the JS bundle, which a phone would pay on first load to read one.
+   * Everything downloaded is merged into one reference set (see lib/packs.ts) and filtered here by
+   * the pack buttons, so two genres' tropes can sit side by side. What is switched OFF is what gets
+   * remembered, in localStorage rather than on the project: filtering the reference while you write
+   * is a reading choice, not an edit to the book, and must never dirty the sync outbox. */
   let choices = $state<PackChoice[]>([]);
-  let active = $state<string | null>(getActivePackId());
+  let hidden = $state<string[]>(getHiddenPackIds());
   let busy = $state('');
   let problem = $state('');
+  let confirming = $state('');
 
   $effect(() => {
     listPacks().then((c) => (choices = c));
   });
 
-  async function choosePack(id: string) {
-    problem = '';
-    if (!id) {
-      setActivePackId(null);
-      location.reload(); // everything lives in IndexedDB; a reload loses nothing and re-hydrates
-      return;
-    }
-    const already = choices.find((c) => c.id === id)?.cached;
-    busy = already ? 'Loading…' : 'Downloading…';
-    const pack = await ensurePack(id);
-    busy = '';
-    if (!pack) {
-      problem = 'That pack could not be reached. It stays available once downloaded — try again on a connection.';
-      return;
-    }
-    setActivePackId(id);
-    location.reload();
+  const loaded = $derived.by<ReferencePackInfo[]>(() => {
+    rev;
+    return E.refPacks() as ReferencePackInfo[];
+  });
+  const visible = $derived(loaded.filter((p) => !hidden.includes(p.id)).map((p) => p.id));
+
+  function persist(next: string[]) {
+    hidden = next;
+    setHiddenPackIds(next);
   }
+  function togglePack(id: string) {
+    persist(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id]);
+  }
+  const showAll = () => persist([]);
+  const showNone = () => persist(loaded.map((p) => p.id));
+
+  /* ---- the library panel: download, update, remove ---- */
+
+  interface Row {
+    id: string; label: string; entryCount: number; approxSizeKB?: number;
+    cached: boolean; version: string | null; latest: string | null; updatable: boolean; builtin: boolean;
+  }
+
+  /* Manifest rows and loaded packs are two different truths and both matter: offline the manifest is
+   * empty, and the packs already downloaded are perfectly usable and must still be listed. */
+  const rows = $derived.by<Row[]>(() => {
+    const by = new Map<string, Row>();
+    for (const p of loaded)
+      by.set(p.id, {
+        id: p.id, label: p.label, entryCount: p.entryCount,
+        cached: !p.builtin, version: p.packVersion ?? null, latest: null, updatable: false, builtin: !!p.builtin,
+      });
+    for (const c of choices) {
+      const r = by.get(c.id);
+      if (r) {
+        r.label = c.label; r.approxSizeKB = c.approxSizeKB; r.latest = c.packVersion;
+        r.updatable = c.updatable && !r.builtin; r.version = r.version ?? c.cachedVersion;
+      } else {
+        by.set(c.id, {
+          id: c.id, label: c.label, entryCount: c.entryCount, approxSizeKB: c.approxSizeKB,
+          cached: false, version: null, latest: c.packVersion, updatable: false, builtin: false,
+        });
+      }
+    }
+    return [...by.values()].sort((a, b) => (a.cached === b.cached ? a.label.localeCompare(b.label) : a.cached ? -1 : 1));
+  });
+
+  function size(kb?: number) {
+    if (!kb) return '';
+    return kb >= 1024 ? `${Math.round((kb / 1024) * 10) / 10} MB` : `${Math.round(kb)} KB`;
+  }
+
+  async function after() {
+    await onPacksChange(); // re-hydrate in place — a reload would drop the reader back on the dashboard
+    choices = await listPacks();
+  }
+  async function download(id: string) {
+    problem = ''; confirming = ''; busy = id;
+    const p = await ensurePack(id);
+    busy = '';
+    if (!p) { problem = 'That pack could not be reached. It stays available once downloaded — try again on a connection.'; return; }
+    await after();
+  }
+  async function update(id: string) {
+    problem = ''; confirming = ''; busy = id;
+    const p = await refetchPack(id);
+    busy = '';
+    if (!p) { problem = 'The update could not be fetched. Your downloaded copy is untouched.'; return; }
+    await after();
+  }
+  async function drop(id: string) {
+    problem = ''; confirming = ''; busy = id;
+    await removePack(id);
+    persist(hidden.filter((x) => x !== id));
+    busy = '';
+    await after();
+  }
+
+  /* ---- the reference itself ---- */
 
   const hasData = $derived.by(() => {
     rev;
@@ -47,15 +114,20 @@
   });
   const collections = $derived.by<ReferenceCollection[]>(() => {
     rev;
-    return (E.refCollections() || []) as ReferenceCollection[];
+    return (E.refCollections(visible) || []) as ReferenceCollection[];
   });
   const catOptions = $derived.by(() => {
     rev;
-    return E.refCatsOptions(kind);
+    return E.refCatsOptions(kind, visible);
   });
   const body = $derived.by(() => {
     rev;
-    return E.refBody(kind, query, cat);
+    return E.refBody(kind, query, cat, visible);
+  });
+
+  // switching a pack off can take the selected collection with it — don't leave a dead filter on
+  $effect(() => {
+    if (kind !== 'all' && !collections.some((c) => c.id === kind)) { kind = 'all'; cat = ''; }
   });
 
   function pickKind(k: string) {
@@ -64,28 +136,75 @@
   }
 </script>
 
-<div class="refctl" style="margin-bottom:10px">
-  <select class="refsel pick" value={active ?? ''} onchange={(ev) => choosePack((ev.currentTarget as HTMLSelectElement).value)}>
-    <option value="">This project's own pack</option>
-    {#each choices as c (c.id)}
-      <option value={c.id}>{c.label} · {c.entryCount} entries{c.cached ? ' · downloaded' : c.approxSizeKB ? ` · ${Math.round(c.approxSizeKB / 1024 * 10) / 10} MB` : ''}</option>
+{#if loaded.length}
+  <div class="mbtns packbar">
+    <button class="mbtn" class:on={visible.length === loaded.length} onclick={showAll}>All packs</button>
+    {#if loaded.length > 1}
+      <button class="mbtn" class:on={visible.length === 0} onclick={showNone}>None</button>
+    {/if}
+    {#each loaded as p (p.id)}
+      <button class="mbtn" class:on={!hidden.includes(p.id)} onclick={() => togglePack(p.id)}>
+        {p.label} <span class="refcount">{p.entryCount}</span>
+      </button>
     {/each}
-  </select>
-  {#if busy}<span class="refcount">{busy}</span>{/if}
-</div>
+  </div>
+{/if}
+
+<details class="packmgr">
+  <summary>Manage packs <span class="refcount">{loaded.length} in your library</span></summary>
+  {#if !rows.length}
+    <p class="empty">No packs, and the library index could not be reached. Try again on a connection.</p>
+  {/if}
+  {#each rows as r (r.id)}
+    <div class="packrow">
+      <div>
+        <b>{r.label}</b>
+        <span class="refcount">
+          {r.entryCount} entries{r.approxSizeKB ? ` · ${size(r.approxSizeKB)}` : ''}{r.version ? ` · v${r.version}` : ''}
+        </span>
+        {#if r.builtin}<span class="refcat">built in</span>
+        {:else if r.updatable}<span class="refcat">v{r.latest} available</span>{/if}
+      </div>
+      <div class="packacts">
+        {#if busy === r.id}
+          <span class="refcount">working…</span>
+        {:else if r.builtin}
+          <span class="refcount">bundled with the app</span>
+        {:else if !r.cached}
+          <button class="pbtn" onclick={() => download(r.id)}>Download</button>
+        {:else}
+          {#if r.latest}
+            <button class="pbtn" class:go={r.updatable} onclick={() => update(r.id)}>
+              {r.updatable ? `Update to v${r.latest}` : 'Re-download'}
+            </button>
+          {/if}
+          {#if confirming === r.id}
+            <button class="pbtn warn" onclick={() => drop(r.id)}>Remove for good?</button>
+            <button class="pbtn" onclick={() => (confirming = '')}>Keep</button>
+          {:else}
+            <button class="pbtn" onclick={() => (confirming = r.id)}>Remove</button>
+          {/if}
+        {/if}
+      </div>
+    </div>
+  {/each}
+</details>
+
 {#if problem}<p class="empty">{problem}</p>{/if}
 
 {#if !hasData}
-  <p class="empty">No reference library loaded in this project. Pick a pack above to download one.</p>
+  <p class="empty">No reference library loaded. Open <b>Manage packs</b> above and download one.</p>
+{:else if !visible.length}
+  <p class="empty">Every pack is switched off. Turn one back on above, or press <b>All packs</b>.</p>
 {:else}
   <div class="legend">
     Your whole reference — tropes, tech, science, authors, craft, and more. Filter here, or search
     from the top bar while you write.
   </div>
   <div class="mbtns" style="flex-wrap:wrap">
-    <button class="mbtn" class:on={kind === 'all'} onclick={() => pickKind('all')}>All <span class="refcount">{E.refCount('all')}</span></button>
+    <button class="mbtn" class:on={kind === 'all'} onclick={() => pickKind('all')}>All <span class="refcount">{E.refCount('all', visible)}</span></button>
     {#each collections as c (c.id)}
-      <button class="mbtn" class:on={kind === c.id} onclick={() => pickKind(c.id)}>{c.label} <span class="refcount">{E.refCount(c.id)}</span></button>
+      <button class="mbtn" class:on={kind === c.id} onclick={() => pickKind(c.id)}>{c.label} <span class="refcount">{E.refCount(c.id, visible)}</span></button>
     {/each}
   </div>
   <div class="refctl">

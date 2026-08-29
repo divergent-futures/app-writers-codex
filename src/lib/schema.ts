@@ -347,9 +347,25 @@ export interface ReferenceEntry {
   items?: string[];
   /** derived UI fields */
   _label?: string;
+  /** set only on the merged in-memory set: which downloaded pack this entry came from.
+   *  Entry ids are namespaced `<packId>:<id>` there — 619 ids collide across the twelve packs
+   *  (`subgenre-1` is in Comedy and Fantasy both), so an un-namespaced merge would make the
+   *  search drawer open the wrong card. */
+  _pack?: string;
+  _packLabel?: string;
   _badge?: string;
   _bg?: string;
   _fg?: string;
+}
+
+/** One loaded pack, as the Reference view's filter buttons need it. */
+export interface ReferencePackInfo {
+  id: string;
+  label: string;
+  entryCount: number;
+  packVersion?: string;
+  /** bundled with the app rather than downloaded — cannot be removed. */
+  builtin?: boolean;
 }
 
 export interface ReferencePack {
@@ -362,6 +378,8 @@ export interface ReferencePack {
   minAppVersion?: string;
   collections: ReferenceCollection[];
   entries: ReferenceEntry[];
+  /** present only on the merged in-memory set built by hydrate — never on a stored pack. */
+  packs?: ReferencePackInfo[];
 }
 
 /* ---------- the project ---------- */

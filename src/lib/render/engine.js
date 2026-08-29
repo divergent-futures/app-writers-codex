@@ -546,24 +546,42 @@ function refDetail(e) {
   const pr = refPrinciple(e);
   return s === 'example_cards' ? (ex || pr) : (pr + ex);
 }
-function refCard(e, open) { return '<details class="refcard"' + (open ? ' open' : '') + '><summary><span class="refname">' + esc(e.name) + '</span>' + refBadge(e) + (e.category ? '<span class="refcat">' + esc(e.category) + '</span>' : '') + (e.description ? '<div class="refdesc">' + esc(e.description) + '</div>' : '') + '</summary><div class="refbody">' + refDetail(e) + '</div></details>'; }
-function REFENT() { return (P._reference && P._reference.entries) || []; }
-export function refCollections() { return (P._reference && P._reference.collections) || []; }
+function refCard(e, open, showPack) { return '<details class="refcard"' + (open ? ' open' : '') + '><summary><span class="refname">' + esc(e.name) + '</span>' + refBadge(e) + (showPack && e._packLabel ? '<span class="refpack">' + esc(e._packLabel) + '</span>' : '') + (e.category ? '<span class="refcat">' + esc(e.category) + '</span>' : '') + (e.description ? '<div class="refdesc">' + esc(e.description) + '</div>' : '') + '</summary><div class="refbody">' + refDetail(e) + '</div></details>'; }
+
+/* `packs` is the reader's pack filter: an array of pack ids to show. Passing it is how every count,
+ * category list and card body stays in step with the toggle row. `undefined` means "no filter" and is
+ * what the drawer and the search index use — a card opened from a search hit must resolve even if its
+ * pack is currently switched off. An EMPTY array is the deliberate opposite: nothing switched on. */
+function REFENT(packs) {
+  const all = (P._reference && P._reference.entries) || [];
+  if (!packs) return all;
+  return all.filter((e) => packs.indexOf(e._pack) >= 0);
+}
+export function refPacks() { return (P._reference && P._reference.packs) || []; }
+export function refCollections(packs) {
+  const cols = (P._reference && P._reference.collections) || [];
+  if (!packs) return cols;
+  const kinds = {};
+  REFENT(packs).forEach((e) => { kinds[e.kind] = 1; });
+  return cols.filter((c) => kinds[c.id]); // a collection no visible pack has is a button that does nothing
+}
 export function refHasData() { return REFENT().length > 0; }
-export function refCatsOptions(kind) {
-  let items = REFENT(); if (kind && kind !== 'all') items = items.filter((e) => e.kind === kind);
+export function refCatsOptions(kind, packs) {
+  let items = REFENT(packs); if (kind && kind !== 'all') items = items.filter((e) => e.kind === kind);
   const cats = []; items.forEach((e) => { if (e.category && cats.indexOf(e.category) < 0) cats.push(e.category); });
   cats.sort();
   return '<option value="">All categories</option>' + cats.map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
 }
-export function refCount(kind) { const ents = REFENT(); return (!kind || kind === 'all') ? ents.length : ents.filter((e) => e.kind === kind).length; }
-export function refBody(kind, q, cat) {
+export function refCount(kind, packs) { const ents = REFENT(packs); return (!kind || kind === 'all') ? ents.length : ents.filter((e) => e.kind === kind).length; }
+export function refBody(kind, q, cat, packs) {
   q = (q || '').trim().toLowerCase();
-  let items = REFENT(); if (kind && kind !== 'all') items = items.filter((e) => e.kind === kind); if (cat) items = items.filter((e) => e.category === cat);
+  let items = REFENT(packs); if (kind && kind !== 'all') items = items.filter((e) => e.kind === kind); if (cat) items = items.filter((e) => e.category === cat);
   if (q) items = items.filter((e) => ((e.name || '') + ' ' + (e.category || '') + ' ' + (e.description || '') + ' ' + (e.principle || '') + ' ' + (e.knownFor || '') + ' ' + (e.signature || '') + ' ' + (e.text || '') + ' ' + JSON.stringify(e.examples || '')).toLowerCase().indexOf(q) >= 0);
   if (!items.length) return '<p class="empty">No matches.</p>';
   const openAll = !!(q || cat);
-  return '<div class="refcount2">' + items.length + ' entr' + (items.length === 1 ? 'y' : 'ies') + '</div>' + items.map((e) => refCard(e, openAll)).join('');
+  // Whose trope is this? With one pack showing, the chip is noise; with two, its absence is a bug.
+  const showPack = (packs ? packs.length : ((P._reference && P._reference.packs) || []).length) > 1;
+  return '<div class="refcount2">' + items.length + ' entr' + (items.length === 1 ? 'y' : 'ies') + '</div>' + items.map((e) => refCard(e, openAll, showPack)).join('');
 }
 
 /* ---------------- Detail drawer ---------------- */

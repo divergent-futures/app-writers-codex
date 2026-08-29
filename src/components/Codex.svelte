@@ -276,7 +276,7 @@
     {:else if view === 'web'}
       <WebGraph {rev} />
     {:else if view === 'reference'}
-      <Reference {rev} />
+      <Reference {rev} onPacksChange={rehydrate} />
     {:else if view === 'write'}
       <Write {rev} target={writeTarget} onProseChange={rehydrate} onTargetConsumed={() => (writeTarget = '')} />
     {:else if view === 'notes'}

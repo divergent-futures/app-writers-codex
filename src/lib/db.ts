@@ -493,6 +493,20 @@ export async function putPack(pack: ReferencePack & { id: string }): Promise<voi
   await (await db()).put('packs', pack);
 }
 
+/** Ids only — the whole store is ~9 MB, and drawing a button row must not pay that. */
+export async function listCachedPackIds(): Promise<string[]> {
+  return (await (await db()).getAllKeys('packs')) as string[];
+}
+
+/** Every downloaded pack, for the merged reference set. The one call that does pay the 9 MB. */
+export async function allCachedPacks(): Promise<(ReferencePack & { id: string })[]> {
+  return (await db()).getAll('packs');
+}
+
+export async function deletePack(id: string): Promise<void> {
+  await (await db()).delete('packs', id);
+}
+
 /* ---------------- meta / settings ---------------- */
 
 export async function getMeta<T = unknown>(key: string): Promise<T | undefined> {
