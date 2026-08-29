@@ -511,13 +511,40 @@ export function cockpit(id) {
 
 /* ---------------- Reference ---------------- */
 function refBadge(e) { return '<span class="refbadge" style="background:' + esc(e._bg || '#2b3550') + ';color:' + esc(e._fg || '#aebfff') + '">' + esc(e._badge || '') + '</span>'; }
+/* Card rendering dispatches on the pack's own declared SCHEMA, never on the collection id.
+ *
+ * WHY. Science Fiction calls its work collection `book`; the other eleven packs call it `work`.
+ * The old `k === 'book'` test therefore rendered an EMPTY BODY for 1,754 of the library's 1,938
+ * work cards — the largest collection in every pack but one. That id divergence is deliberate and
+ * permanent (staging report 2026-08-06, Open Question #4: ids are permanent handles), so the
+ * renderer has to stop caring about it. Every pack declares `schema` on every collection
+ * (PACK-SPEC §2). Read that instead. Same lesson packlib.py records: classify by shape, never by
+ * collection id, or a tool reports zero work cards for a pack that has 170.
+ */
+function refSchemaOf(e) {
+  const cols = (P._reference && P._reference.collections) || [];
+  const c = cols.find((x) => x.id === e.kind);
+  if (c && c.schema) return c.schema === 'book_cards' ? 'work_cards' : c.schema; // pre-v2 packs
+  // No collections[] to consult: infer from the fields present, in packlib.py's marker order.
+  if (e.knownFor || e.signature || e.works) return 'author_cards';
+  if (e.items) return 'checklist_cards';
+  if (e.principle || e.application) return 'principle_cards';
+  if ((e.examples || []).length) return 'example_cards';
+  if (e.medium || e.year || e.text) return 'work_cards';
+  return 'principle_cards';
+}
+function refExamples(e) { return (e.examples || []).map((x) => '<div class="refex ' + (x.quality === 'weak' ? 'weak' : 'strong') + '"><div class="refexh">' + esc(x.work || '') + (x.medium ? ' <span class="refmed">' + esc(x.medium) + (x.year ? ', ' + esc(x.year) : '') + '</span>' : '') + ' <span class="refq">' + (x.quality === 'weak' ? 'weak' : 'strong') + '</span></div><div class="refext">' + esc(x.text || '') + '</div></div>').join(''); }
+function refPrinciple(e) { return (e.principle ? '<p><span class="reflab">Principle</span>' + esc(e.principle) + '</p>' : '') + (e.example ? '<p><span class="reflab">Example</span>' + esc(e.example) + '</p>' : '') + (e.application ? '<p><span class="reflab">Application</span>' + esc(e.application) + '</p>' : ''); }
 function refDetail(e) {
-  const k = e.kind;
-  if (k === 'author') return (e.meta ? '<div class="refmeta">' + esc(e.meta) + '</div>' : '') + (e.knownFor ? '<p><span class="reflab">Known for</span>' + esc(e.knownFor) + '</p>' : '') + (e.signature ? '<p><span class="reflab">Signature</span>' + esc(e.signature) + '</p>' : '') + ((e.works || []).length ? '<p><span class="reflab">Works</span></p><ul class="refworks">' + e.works.map((w) => '<li><b>' + esc(w.title || '') + '</b>' + (w.year ? ' (' + esc(w.year) + ')' : '') + (w.note ? ' — ' + esc(w.note) : '') + '</li>').join('') + '</ul>' : '');
-  if (k === 'book') return '<div class="refmeta">' + esc(e.author || '') + (e.year ? ' · ' + esc(e.year) : '') + (e.awards ? ' · ' + esc(e.awards) : '') + '</div>' + (e.text ? '<p>' + esc(e.text) + '</p>' : '');
-  if (k === 'checklist') return '<ul class="refchk">' + (e.items || []).map((it) => '<li><label><input type="checkbox"> ' + esc(it) + '</label></li>').join('') + '</ul>';
-  if ((e.examples || []).length) return e.examples.map((x) => '<div class="refex ' + (x.quality === 'weak' ? 'weak' : 'strong') + '"><div class="refexh">' + esc(x.work || '') + (x.medium ? ' <span class="refmed">' + esc(x.medium) + (x.year ? ', ' + esc(x.year) : '') + '</span>' : '') + ' <span class="refq">' + (x.quality === 'weak' ? 'weak' : 'strong') + '</span></div><div class="refext">' + esc(x.text || '') + '</div></div>').join('');
-  return (e.principle ? '<p><span class="reflab">Principle</span>' + esc(e.principle) + '</p>' : '') + (e.example ? '<p><span class="reflab">Example</span>' + esc(e.example) + '</p>' : '') + (e.application ? '<p><span class="reflab">Application</span>' + esc(e.application) + '</p>' : '');
+  const s = refSchemaOf(e);
+  if (s === 'author_cards') return (e.meta ? '<div class="refmeta">' + esc(e.meta) + '</div>' : '') + (e.knownFor ? '<p><span class="reflab">Known for</span>' + esc(e.knownFor) + '</p>' : '') + (e.signature ? '<p><span class="reflab">Signature</span>' + esc(e.signature) + '</p>' : '') + ((e.works || []).length ? '<p><span class="reflab">Works</span></p><ul class="refworks">' + e.works.map((w) => '<li><b>' + esc(w.title || '') + '</b>' + (w.year ? ' (' + esc(w.year) + ')' : '') + (w.note ? ' — ' + esc(w.note) : '') + '</li>').join('') + '</ul>' : '');
+  if (s === 'work_cards') return '<div class="refmeta">' + esc(e.author || '') + (e.year ? ' · ' + esc(e.year) : '') + (e.awards ? ' · ' + esc(e.awards) : '') + '</div>' + (e.text ? '<p>' + esc(e.text) + '</p>' : '');
+  if (s === 'checklist_cards') return '<ul class="refchk">' + (e.items || []).map((it) => '<li><label><input type="checkbox"> ' + esc(it) + '</label></li>').join('') + '</ul>';
+  // A principle card may legitimately carry examples too (several packs do), so render both rather
+  // than letting the declared schema hide content that is actually on the card.
+  const ex = (e.examples || []).length ? refExamples(e) : '';
+  const pr = refPrinciple(e);
+  return s === 'example_cards' ? (ex || pr) : (pr + ex);
 }
 function refCard(e, open) { return '<details class="refcard"' + (open ? ' open' : '') + '><summary><span class="refname">' + esc(e.name) + '</span>' + refBadge(e) + (e.category ? '<span class="refcat">' + esc(e.category) + '</span>' : '') + (e.description ? '<div class="refdesc">' + esc(e.description) + '</div>' : '') + '</summary><div class="refbody">' + refDetail(e) + '</div></details>'; }
 function REFENT() { return (P._reference && P._reference.entries) || []; }

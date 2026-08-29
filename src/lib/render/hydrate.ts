@@ -7,7 +7,8 @@
  */
 
 import type { ProjectData, ReferencePack } from '../schema';
-import { allProse, allWorldbuilding } from '../db';
+import { allProse, allWorldbuilding, getPack } from '../db';
+import { getActivePackId } from '../packs';
 
 const wordCount = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 
@@ -34,9 +35,19 @@ async function loadPrivateRefPack(): Promise<ReferencePack | null> {
   return _privateRefCache;
 }
 
+/* Resolution order: the reader's current choice, then downloaded packs, then the two bundled ones.
+ *
+ * The bundled pair are the offline seed — they keep the app non-empty on a first run with no
+ * network. Everything else in the twelve-pack library is fetched on demand and cached in the
+ * `packs` IndexedDB store (see lib/packs.ts). Bundling all twelve would put 9.2 MB of JSON into the
+ * bundle and make a phone download eleven packs in order to read one. */
 async function loadReferencePack(data: ProjectData): Promise<ReferencePack | null> {
-  const wantId = data.referencePackId;
+  const wantId = getActivePackId() || data.referencePackId;
   if (!wantId) return null;
+
+  const downloaded = await getPack(wantId);
+  if (downloaded) return downloaded;
+
   const [pub, priv] = await Promise.all([loadPublicRefPack(), loadPrivateRefPack()]);
   if (pub && pub.id === wantId) return pub;
   if (priv && priv.id === wantId) return priv;

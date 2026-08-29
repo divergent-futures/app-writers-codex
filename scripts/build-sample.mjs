@@ -78,7 +78,14 @@ function main() {
   writeFileSync(join(OUT_DIR, 'sample-project.json'), JSON.stringify(bundle));
 
   // reference pack (kept separate; wired when the Reference view is built in step 2)
-  const refPath = join(SRC, 'reference.json');
+  /* The reference pack comes from the PUBLISHED library, not from story-workbench.
+   *
+   * This line used to read `join(SRC, 'reference.json')` — the 656-entry private research file that
+   * pack one was originally converted from. That made `npm run build:private` a trap: it silently
+   * downgraded the bundled pack from the shipped version to the 2026-08 ancestor, losing everything
+   * built since. Science Fiction is now 2.1.0 with 1,200 entries and is a published artefact; the
+   * staging repo's `packs/` is its only canonical home (PACK-SPEC §6b). */
+  const refPath = join(ROOT, '..', 'writers-codex-reference-packs-staging', 'packs', 'reference-scifi.json');
   if (existsSync(refPath)) {
     const ref = JSON.parse(readFileSync(refPath, 'utf8'));
     writeFileSync(

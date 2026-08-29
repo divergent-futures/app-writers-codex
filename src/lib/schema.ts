@@ -33,7 +33,11 @@ export const REF_QUALITY = ['excellent', 'strong', 'weak', 'terrible'] as const;
 /** Medium enum for work_cards entries (ref-schema v2; `nonfiction` added in the
  *  2026-08-06 pre-release amendment — enum closed at 9 values). Per-example `medium` on
  *  example_cards stays free text. `stage` deferred. */
-export const REF_MEDIUM = ['novel', 'film', 'tv', 'comic', 'manga', 'graphic-novel', 'game', 'audio', 'nonfiction'] as const;
+/* Schema v2.1 (2026-08-28): `short-fiction`, `poetry` and `stage` added. The enum previously had no
+ * word for a play, a short story or a poem, so ledger row S-02 instructed builders to card them as
+ * `novel`. 117 work cards across ten packs still carry that falsehood — Twelfth Night, Tartuffe and
+ * Lysistrata are all `medium: novel` today. Retagging is a separate pass; the enum had to widen first. */
+export const REF_MEDIUM = ['novel', 'short-fiction', 'poetry', 'stage', 'film', 'tv', 'comic', 'manga', 'graphic-novel', 'game', 'audio', 'nonfiction'] as const;
 export const ARC_STATUS = ['open', 'closed'] as const;
 
 export type ContainerType = (typeof CONTAINER_TYPE)[number];
