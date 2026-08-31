@@ -22,9 +22,11 @@
   let hidden = $state<string[]>(getHiddenPackIds());
   let busy = $state('');
   let problem = $state('');
+  let note = $state('');
   let confirming = $state('');
 
   $effect(() => {
+    rev; // re-read after a hydrate: that is when versions get backfilled off the merged set
     listPacks().then((c) => (choices = c));
   });
 
@@ -84,25 +86,45 @@
     await onPacksChange(); // re-hydrate in place — a reload would drop the reader back on the dashboard
     choices = await listPacks();
   }
+  const clear = () => { problem = ''; note = ''; confirming = ''; };
+
   async function download(id: string) {
-    problem = ''; confirming = ''; busy = id;
+    clear(); busy = id;
     const p = await ensurePack(id);
     busy = '';
     if (!p) { problem = 'That pack could not be reached. It stays available once downloaded — try again on a connection.'; return; }
+    note = `${p.name || id} downloaded — ${(p.entries || []).length} entries${p.packVersion ? `, v${p.packVersion}` : ''}.`;
     await after();
   }
+
+  /* Every one of these says what it did, and an update that changed nothing says THAT. A button that
+   * reports only failure looks identical, from the outside, to a button that is broken. */
   async function update(id: string) {
-    problem = ''; confirming = ''; busy = id;
+    const was = rows.find((r) => r.id === id)?.version || null;
+    const wanted = rows.find((r) => r.id === id)?.latest || null;
+    clear(); busy = id;
     const p = await refetchPack(id);
     busy = '';
     if (!p) { problem = 'The update could not be fetched. Your downloaded copy is untouched.'; return; }
+    const now = p.packVersion || null;
+    const n = (p.entries || []).length;
+    if (wanted && now && now !== wanted) {
+      problem = `The library still returned v${now} rather than v${wanted}. That is a stale copy in the CDN's edge cache, not your app — try again in a few minutes.`;
+    } else if (was && now && was === now) {
+      note = `${p.name || id} was already current at v${now} — ${n} entries.`;
+    } else {
+      note = `${p.name || id} updated${was ? ` from v${was}` : ''}${now ? ` to v${now}` : ''} — now ${n} entries.`;
+    }
     await after();
   }
+
   async function drop(id: string) {
-    problem = ''; confirming = ''; busy = id;
+    const label = rows.find((r) => r.id === id)?.label || id;
+    clear(); busy = id;
     await removePack(id);
     persist(hidden.filter((x) => x !== id));
     busy = '';
+    note = `${label} removed. Download it again any time — nothing you wrote lives in a pack.`;
     await after();
   }
 
@@ -152,6 +174,8 @@
 
 <details class="packmgr">
   <summary>Manage packs <span class="refcount">{loaded.length} in your library</span></summary>
+  {#if problem}<p class="packmsg bad">{problem}</p>{/if}
+  {#if note}<p class="packmsg">{note}</p>{/if}
   {#if !rows.length}
     <p class="empty">No packs, and the library index could not be reached. Try again on a connection.</p>
   {/if}
@@ -189,8 +213,6 @@
     </div>
   {/each}
 </details>
-
-{#if problem}<p class="empty">{problem}</p>{/if}
 
 {#if !hasData}
   <p class="empty">No reference library loaded. Open <b>Manage packs</b> above and download one.</p>

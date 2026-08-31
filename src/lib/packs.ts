@@ -130,7 +130,12 @@ async function download(id: string): Promise<(ReferencePack & { id: string }) | 
   const entry = (await fetchManifest()).find((p) => p.id === id);
   if (!entry) return null;
   try {
-    const r = await fetch(`${CDN}/${entry.file}`);
+    /* `cache: 'reload'` and the version query are both here for one reason: an update that quietly
+     * re-reads the browser's HTTP cache is worse than no update button at all. It succeeds, writes
+     * the same bytes back, changes no count, and tells the reader nothing. A plain `fetch` of a
+     * 2 MB pack the browser fetched last month will do exactly that. */
+    const bust = entry.packVersion ? `?v=${encodeURIComponent(entry.packVersion)}` : '';
+    const r = await fetch(`${CDN}/${entry.file}${bust}`, { cache: 'reload' });
     if (!r.ok) return null;
     const pack = (await r.json()) as ReferencePack & { id?: string };
     if (!looksLikeAPack(pack)) return null;
@@ -279,6 +284,14 @@ export async function mergedReference(
   if (_merged && _merged.key === key) return _merged.value;
 
   const downloaded = await allCachedPacks();
+
+  /* Backfill the version map. A pack downloaded before versions were tracked reads as "unknown",
+   * which makes the library offer a re-download instead of saying an update exists — and a copy of
+   * Science Fiction cached at 1.0.1 is 782 entries against 2.1.0's 1,200, which is not something a
+   * reader should have to notice for themselves. The 9 MB is already paid for by this merge, so the
+   * versions come out of it for nothing. */
+  const known = readVersions();
+  for (const p of downloaded) if (p.packVersion && known[p.id] !== p.packVersion) writeVersion(p.id, p.packVersion);
   const list: (ReferencePack & { id: string; _builtin?: boolean })[] = downloaded
     .slice()
     .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
