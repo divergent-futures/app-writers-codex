@@ -47,6 +47,21 @@ function main() {
     }
   }
 
+  // Shelf documents (added 2026-09-04). The type briefs write to characters\\, canon\\branches\\,
+  // craft\\ and research\\ and nothing read those folders, so correctly filed work never reached the
+  // app — see _brain\\cosmos-book\\SHELVES-VS-APP-2026-09-04.md. They ride in the SAME worldbuilding
+  // store (no new sync store, no worker change), under a namespaced key `<shelf>::<id>`. A world or
+  // book id can never contain "::", so nothing collides; hydrate.ts splits them back out and
+  // export.ts keeps any key containing "::". Keep this in step with story-workbench\\build.py.
+  for (const shelf of ['characters', 'canon/branches', 'craft', 'research']) {
+    const dir = join(SRC, ...shelf.split('/'));
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.md') || f.toLowerCase() === 'readme.md') continue;
+      worldbuilding[`${shelf}::${basename(f, '.md')}`] = readFileSync(join(dir, f), 'utf8').trim();
+    }
+  }
+
   // Manuscript prose: chapters[].bodyFile -> markdown text, keyed by chapter id (matches how the
   // app stores/reads prose — see src/lib/export.ts's importProjectBundle). This is TJ's own private
   // pipeline: gated by /src/lib/sample/ being git-ignored, and by the build-public.mjs guard that
@@ -103,7 +118,7 @@ function main() {
     `[build-sample] wrote sample-project.json — "${bundle.name}"`,
     `\n  collections:`,
     JSON.stringify(counts),
-    `\n  worldbuilding docs: ${Object.keys(worldbuilding).length}   prose: ${Object.keys(prose).length} chapter(s) with real content`,
+    `\n  worldbuilding docs: ${Object.keys(worldbuilding).filter((k) => !k.includes('::')).length}   shelf docs: ${Object.keys(worldbuilding).filter((k) => k.includes('::')).length}   prose: ${Object.keys(prose).length} chapter(s) with real content`,
   );
 }
 

@@ -55,6 +55,11 @@ export async function buildProjectBundle(projectId: string): Promise<ProjectBund
   // so a deleted chapter's text never rides along in the export.
   const chapterIds = new Set((rec.data.chapters || []).map((c) => c.id));
   const wbIds = new Set([...(rec.data.worlds || []), ...(rec.data.books || [])].map((e) => e.id));
+  // Shelf documents (characters/, canon/branches/, craft/, research/) live in the same store under a
+  // namespaced key `<shelf>::<id>`. They belong to no world or book, so the allowlist above dropped
+  // every one of them on export — silently, which is how correctly filed work went missing. Anything
+  // carrying "::" is a shelf document and is kept. See _brain/cosmos-book/SHELVES-VS-APP-2026-09-04.md.
+  const keepWb = (k: string) => wbIds.has(k) || k.includes('::');
   const pick = (obj: Record<string, string>, keep: Set<string>) =>
     Object.fromEntries(Object.entries(obj).filter(([k]) => keep.has(k)));
   return {
@@ -64,7 +69,9 @@ export async function buildProjectBundle(projectId: string): Promise<ProjectBund
     name: rec.name,
     project: rec.data,
     prose: pick(await allProse(projectId), chapterIds),
-    worldbuilding: pick(await allWorldbuilding(projectId), wbIds),
+    worldbuilding: Object.fromEntries(
+      Object.entries(await allWorldbuilding(projectId)).filter(([k]) => keepWb(k)),
+    ),
     // Images can be attached to any entity type (characters, worlds, books, ...), not just the
     // chapter/worldbuilding sets above, so — unlike prose/worldbuilding — these aren't pruned by
     // an entity-id allowlist. A stray orphaned image riding along is harmless; losing photos isn't.

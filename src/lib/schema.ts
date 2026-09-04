@@ -80,6 +80,9 @@ export interface Book {
   /** derived */
   _worldbuilding?: string;
   _wbwords?: number;
+  /** derived — canon/branches/<id>.md; see render/hydrate.ts */
+  _branch?: string;
+  _branchwords?: number;
 }
 
 export interface Thread {
@@ -145,6 +148,11 @@ export interface Character {
   relationships: Relationship[];
   links: CharacterLink[];
   lessons?: Lesson[];
+  /** derived — characters/<id>.md and canon/branches/<id>.md; see render/hydrate.ts */
+  _doc?: string;
+  _docwords?: number;
+  _branch?: string;
+  _branchwords?: number;
 }
 
 /* ---------- worlds ---------- */
@@ -160,6 +168,9 @@ export interface World {
   /** derived */
   _worldbuilding?: string;
   _wbwords?: number;
+  /** derived — canon/branches/<id>.md; see render/hydrate.ts */
+  _branch?: string;
+  _branchwords?: number;
 }
 
 /* ---------- timeline ---------- */
@@ -403,6 +414,8 @@ export interface ProjectData {
   referencePackId?: string;
   /** derived, injected only when hydrated */
   _reference?: ReferencePack;
+  /** derived — free-standing shelf documents (craft/, orphan branches); see render/hydrate.ts */
+  _library?: { id: string; shelf: string; title: string; visibility: string; markdown: string; words: number }[];
 }
 
 /** The collection keys that hold `{id}` arrays — used by validation & counting. */

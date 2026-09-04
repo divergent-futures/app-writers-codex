@@ -57,6 +57,24 @@ async function loadReferencePack(data: ProjectData): Promise<ReferencePack | nul
   }, wantId);
 }
 
+
+/* The filename is the title. A "#" heading counts only when it is a real level-1 title: these files
+ * are dictation captures whose "##"/"###" headings are timestamps, and titling by the first heading
+ * turned a dozen documents into "TJ - 2026-05-26 07:21". Mirrors _libtitle in story-workbench/build.py. */
+function docTitle(id: string, md: string): string {
+  for (const raw of md.replace(/<!--[\s\S]*?-->/g, '').split('\n').slice(0, 40)) {
+    const line = raw.trim();
+    if (line.startsWith('# ') && !/^#\s*(TJ|\d{4}-)/.test(line)) return line.slice(1).trim();
+  }
+  const s = id.replace(/-/g, ' ').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function docVisibility(md: string): string {
+  const m = md.match(/^visibility:\s*(\w+)/m);
+  return m ? m[1] : 'public';
+}
+
 export async function hydrate(projectId: string, data: ProjectData): Promise<ProjectData> {
   // shallow clone + clone the collections we annotate (avoid mutating the store's reactive object)
   const prose = await allProse(projectId);
@@ -77,6 +95,43 @@ export async function hydrate(projectId: string, data: ProjectData): Promise<Pro
     const md = wb[b.id];
     return md != null ? { ...b, _worldbuilding: md, _wbwords: wordCount(md) } : b;
   });
+
+  /* Shelf documents (added 2026-09-04) — characters/, canon/branches/, craft/, research/.
+   * They share the worldbuilding store under a namespaced key `<shelf>::<id>` (see
+   * scripts/build-sample.mjs and export.ts). Split them back out here: a document whose id
+   * matches an entity is attached to it; everything else becomes a Library document, so no
+   * shelf file can be filed correctly and still be invisible.
+   * Background: _brain/cosmos-book/SHELVES-VS-APP-2026-09-04.md */
+  const shelfDocs = Object.entries(wb)
+    .filter(([k]) => k.includes('::'))
+    .map(([k, markdown]) => {
+      const i = k.indexOf('::');
+      return { shelf: k.slice(0, i), id: k.slice(i + 2), markdown };
+    });
+  if (shelfDocs.length) {
+    const attach = (list: any[], id: string, key: string, md: string) => {
+      const i = (list || []).findIndex((e) => e.id === id);
+      if (i < 0) return false;
+      list[i] = { ...list[i], [key]: md, [key + 'words']: wordCount(md) };
+      return true;
+    };
+    const library: any[] = [];
+    out.characters = [...(data.characters || [])];
+    out.research = [...(data.research || [])];
+    for (const d of shelfDocs) {
+      let placed = false;
+      if (d.shelf === 'characters') placed = attach(out.characters as any[], d.id, '_doc', d.markdown);
+      else if (d.shelf === 'research') placed = attach(out.research as any[], d.id, '_doc', d.markdown);
+      else if (d.shelf === 'canon/branches')
+        placed =
+          attach(out.characters as any[], d.id, '_branch', d.markdown) ||
+          attach(out.books as any[], d.id, '_branch', d.markdown) ||
+          attach(out.worlds as any[], d.id, '_branch', d.markdown);
+      if (!placed) library.push({ ...d, title: docTitle(d.id, d.markdown), visibility: docVisibility(d.markdown), words: wordCount(d.markdown) });
+    }
+    (out as any)._library = library.sort((a, b) => (a.shelf + a.id).localeCompare(b.shelf + b.id));
+  }
+
   if (pack) out._reference = pack;
 
   return out;

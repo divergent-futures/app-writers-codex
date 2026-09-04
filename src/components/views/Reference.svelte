@@ -2,7 +2,7 @@
   import * as E from '../../lib/render/engine.js';
   import type { ReferenceCollection, ReferencePackInfo } from '../../lib/schema';
   import {
-    listPacks, ensurePack, refetchPack, removePack,
+    listPacks, ensurePack, refetchPack, removePack, fetchManifest,
     getHiddenPackIds, setHiddenPackIds, type PackChoice,
   } from '../../lib/packs';
 
@@ -118,6 +118,48 @@
     await after();
   }
 
+  /* The manifest is fetched once per page load and memoised, so without this the app cannot learn
+   * about a pack published while it was open — and the reader has no way to ask. */
+  async function checkForUpdates() {
+    clear(); busy = '*';
+    await fetchManifest(true);
+    choices = await listPacks();
+    busy = '';
+    const behind = choices.filter((c) => c.updatable);
+    const fresh = choices.filter((c) => !c.cached);
+    note = behind.length
+      ? `${behind.length} pack${behind.length === 1 ? '' : 's'} behind: ${behind.map((c) => c.label).join(', ')}.`
+      : fresh.length
+        ? `Everything downloaded is current. ${fresh.length} more available to download.`
+        : 'Everything is current.';
+  }
+
+
+  /* One press for a fresh device: refresh the index, download every pack not yet on this device,
+   * and update every pack the index says is behind. Says exactly what it did (and skipped), so a
+   * pack that failed is named rather than silently missing. TJ asked for this 2026-09-03. */
+  async function downloadOrUpdateAll() {
+    clear(); busy = '*';
+    await fetchManifest(true);
+    choices = await listPacks();
+    const todo = choices.filter((c) => !c.cached || c.updatable);
+    if (!todo.length) { busy = ''; note = 'Everything is downloaded and current.'; return; }
+    const got: string[] = []; const upd: string[] = []; const failed: string[] = [];
+    for (const c of todo) {
+      const p = c.cached ? await refetchPack(c.id) : await ensurePack(c.id);
+      if (!p) failed.push(c.label);
+      else if (c.cached) upd.push(`${c.label} v${p.packVersion ?? '?'}`);
+      else got.push(`${c.label} (${(p.entries || []).length})`);
+    }
+    busy = '';
+    const parts: string[] = [];
+    if (got.length) parts.push(`downloaded ${got.join(', ')}`);
+    if (upd.length) parts.push(`updated ${upd.join(', ')}`);
+    note = parts.length ? parts.join('; ') + '.' : '';
+    if (failed.length) problem = `Could not fetch: ${failed.join(', ')}. Try again on a connection.`;
+    await after();
+  }
+
   async function drop(id: string) {
     const label = rows.find((r) => r.id === id)?.label || id;
     clear(); busy = id;
@@ -174,6 +216,14 @@
 
 <details class="packmgr">
   <summary>Manage packs <span class="refcount">{loaded.length} in your library</span></summary>
+  <div class="packacts" style="padding:8px 0">
+    <button class="pbtn go" onclick={downloadOrUpdateAll} disabled={busy === '*'}>
+      {busy === '*' ? 'Working…' : 'Download / update all'}
+    </button>
+    <button class="pbtn" onclick={checkForUpdates} disabled={busy === '*'}>
+      {busy === '*' ? 'Checking…' : 'Check for updates'}
+    </button>
+  </div>
   {#if problem}<p class="packmsg bad">{problem}</p>{/if}
   {#if note}<p class="packmsg">{note}</p>{/if}
   {#if !rows.length}

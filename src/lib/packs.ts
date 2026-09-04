@@ -29,8 +29,16 @@
 import { getPack, putPack, deletePack, listCachedPackIds, allCachedPacks } from './db';
 import type { ReferencePack, ReferencePackInfo, ReferenceCollection, ReferenceEntry } from './schema';
 
-/** Pinned to `@main`. Change to `@v1.2.3` to freeze the library at a tag. */
-const CDN = 'https://cdn.jsdelivr.net/gh/space-divergentfutures/writers-codex-reference-packs@main';
+const REPO = 'space-divergentfutures/writers-codex-reference-packs';
+
+/* Branch or tag, and the ONE line to change to move the app off the branch.
+ *
+ * `main` follows the repo. jsDelivr caches branch files at its edge for up to 12 hours, so a pack
+ * pushed now can take that long to reach a reader — the publish checklist's purge step exists to
+ * collapse that to seconds. Set this to a tag (`v1.3.0`) and updates become immutable and instant
+ * instead, at the cost of having to tag the packs repo on every release. */
+const REF = 'main';
+const CDN = `https://cdn.jsdelivr.net/gh/${REPO}@${REF}`;
 
 export interface ManifestPack {
   id: string;
@@ -58,7 +66,11 @@ let _manifest: ManifestPack[] | null = null;
 export async function fetchManifest(force = false): Promise<ManifestPack[]> {
   if (_manifest && !force) return _manifest;
   try {
-    const r = await fetch(`${CDN}/manifest.json`, { cache: 'no-cache' });
+    // `force` has to defeat two caches, not one: `no-store` stops the browser answering from its own
+    // copy, and the timestamp gives the request a URL the browser has never seen. Neither can do
+    // anything about jsDelivr's edge — that is what the publish-time purge is for.
+    const bust = force ? `?t=${Date.now()}` : '';
+    const r = await fetch(`${CDN}/manifest.json${bust}`, { cache: force ? 'no-store' : 'no-cache' });
     if (!r.ok) throw new Error(`manifest ${r.status}`);
     const m = (await r.json()) as { packs?: ManifestPack[] };
     _manifest = (m.packs || []).filter((p) => p.status === 'live');

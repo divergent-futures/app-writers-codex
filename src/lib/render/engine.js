@@ -283,6 +283,36 @@ export function vBooks() {
   if (promo.length) h += '<div class="callout" style="margin-top:14px"><b>Potential side stories</b> &mdash; timeline tracks that can be promoted to their own book: ' + promo.map((t) => esc(t.name)).join(' &middot; ') + '</div>';
   return h;
 }
+/* The Library — shelf documents that belong to no character, book or world.
+ * characters/, canon/branches/, craft/ and research/ used to be read by nothing; a document that
+ * matches an entity is shown inside that entity, and everything else lands here so that filing a
+ * file correctly can never again mean losing sight of it.
+ * See _brain/cosmos-book/SHELVES-VS-APP-2026-09-04.md. */
+export function vLibrary() {
+  const L = P._library || [];
+  if (!L.length) return '<h2>Library</h2><p class="empty">Nothing on the free-standing shelves yet.</p>';
+  const SH = [
+    ['craft', 'Craft &amp; method', 'How the book is made — voice, structure, reading, working rules.'],
+    ['canon/branches', 'Plot branches', 'Branch material with no character, book or world of its own yet.'],
+    ['characters', 'Character files (unmatched)', 'A characters\\ file whose name matches no character entry.'],
+    ['research', 'Research files (unmatched)', 'A research\\ file whose name matches no dossier.'],
+  ];
+  const words = L.reduce((n, d) => n + (d.words || 0), 0);
+  let h = '<h2>Library <span class="muted" style="font-size:13px;font-weight:400">' + L.length + ' documents &middot; ' + words.toLocaleString() + ' words</span></h2>';
+  h += '<p class="empty" style="margin-bottom:14px">Shelf files that are not attached to a character, book or world. Files that ARE attached appear inside that entity instead.</p>';
+  SH.forEach((s) => {
+    const ds = L.filter((d) => d.shelf === s[0]);
+    if (!ds.length) return;
+    h += '<div class="book-section"><div class="book-head"><span class="t">' + s[1] + '</span><span class="muted" style="font-size:12px">' + ds.length + ' &middot; ' + ds.reduce((n, d) => n + (d.words || 0), 0).toLocaleString() + ' words</span></div>';
+    h += '<div class="muted" style="font-size:12px;margin:2px 0 8px">' + s[2] + '</div>';
+    ds.forEach((d) => {
+      h += '<details class="bkfold"><summary>' + esc(d.title) + ' <span class="muted">(' + (d.words || 0).toLocaleString() + ' words &middot; ' + esc(d.shelf) + '\\' + esc(d.id) + '.md' + (d.visibility === 'private' ? ' &middot; private' : '') + ')</span></summary><div class="wbdoc">' + mdLite(d.markdown) + '</div></details>';
+    });
+    h += '</div>';
+  });
+  return h;
+}
+
 export function vOutline() {
   let h = '';
   (P.books || []).forEach((b) => {
@@ -607,6 +637,8 @@ export function detailHTML(type, id) {
     if (lnk.length) { h += '<div class="rels"><div class="mlabel" style="display:block;margin-bottom:5px">Connections</div>' + lnk.map((l) => { const t = l.kind === 'thread' ? threadById(l.to) : worldById(l.to); const nm = t ? (t.name || t.title || l.to) : l.to; return '<div class="rel">' + dlink(l.kind, l.to, nm) + '<span class="reltype">' + esc(l.type || l.kind) + '</span>' + (l.note ? '<div class="relnote">' + esc(l.note) + '</div>' : '') + '</div>'; }).join('') + '</div>'; }
     const ap = appearsList(c.id);
     h += '<p class="mblock" style="margin-top:10px"><span class="mlabel">Appears in</span>' + (ap.length ? ap.map((ch) => dlink('chapter', ch.id, ch.title || ('Chapter ' + (ch.order || '')))).join(', ') : '<span class="muted">no chapters yet</span>') + '</p>';
+    if (c._doc) h += '<details class="bkfold" open><summary>Character breakdown <span class="muted">(' + (c._docwords || 0).toLocaleString() + ' words &middot; characters\\' + esc(c.id) + '.md)</span></summary><div class="wbdoc">' + mdLite(c._doc) + '</div></details>';
+    if (c._branch) h += '<details class="bkfold"><summary>Plot branch <span class="muted">(' + (c._branchwords || 0).toLocaleString() + ' words &middot; canon\\branches\\' + esc(c.id) + '.md)</span></summary><div class="wbdoc">' + mdLite(c._branch) + '</div></details>';
     if (c.source) h += '<div class="src"><b>Canon:</b> ' + esc(c.source) + '</div>';
     return h;
   }
@@ -621,6 +653,7 @@ export function detailHTML(type, id) {
     const wlc = (P.characters || []).filter((x) => (x.links || []).some((l) => l.to === w.id));
     if (wlc.length) h += '<p class="mblock"><span class="mlabel">Linked characters</span>' + wlc.map((x) => dlink('character', x.id, x.name)).join(', ') + '</p>';
     if (w._worldbuilding) h += '<details class="bkfold" open><summary>Full worldbuilding <span class="muted">(' + (w._wbwords || 0).toLocaleString() + ' words)</span></summary><div class="wbdoc">' + mdLite(w._worldbuilding) + '</div></details>';
+    if (w._branch) h += '<details class="bkfold"><summary>Plot branch <span class="muted">(' + (w._branchwords || 0).toLocaleString() + ' words &middot; canon\\branches\\' + esc(w.id) + '.md)</span></summary><div class="wbdoc">' + mdLite(w._branch) + '</div></details>';
     if (w.source) h += '<div class="src"><b>Canon:</b> ' + esc(w.source) + (w._worldbuilding ? ' <span class="muted">(embedded above)</span>' : '') + '</div>';
     return h;
   }
@@ -659,6 +692,7 @@ export function detailHTML(type, id) {
     if (b._worldbuilding || wl.length || tl2.length) {
       h += '<details class="bkfold" open><summary>Worldbuilding <span class="muted">(established so far)</span></summary>';
       if (b._worldbuilding) h += '<details class="bkfold"><summary>Story spine / novella <span class="muted">(' + (b._wbwords || 0).toLocaleString() + ' words)</span></summary><div class="wbdoc">' + mdLite(b._worldbuilding) + '</div></details>';
+      if (b._branch) h += '<details class="bkfold"><summary>Plot branch <span class="muted">(' + (b._branchwords || 0).toLocaleString() + ' words &middot; canon\\branches\\' + esc(b.id) + '.md)</span></summary><div class="wbdoc">' + mdLite(b._branch) + '</div></details>';
       if (tl2.length) h += '<p class="mblock"><span class="mlabel">Threads</span>' + tl2.map((t) => dlink('thread', t.id, t.name)).join(', ') + '</p>';
       wl.forEach((w) => { h += '<div class="wbworld"><div class="wbwn clik" data-detail="world:' + w.id + '">' + esc(w.name) + ' <span class="wtype">' + esc(w.type || '') + '</span></div>' + (w.note ? '<div class="wbwnote">' + esc(w.note) + '</div>' : '') + (w._worldbuilding ? '<div class="wbmore clik" data-detail="world:' + w.id + '">Open full worldbuilding &mdash; ' + (w._wbwords || 0).toLocaleString() + ' words &rarr;</div>' : '') + '</div>'; });
       h += '</details>';
@@ -734,6 +768,7 @@ export function detailHTML(type, id) {
     if ((r.findings || []).length) { h += '<div class="rels"><div class="mlabel" style="display:block;margin-bottom:5px">Findings</div>' + r.findings.map((f) => '<p class="mblock">&bull; ' + esc(f) + '</p>').join('') + '</div>'; }
     if ((r.forks || []).length) { h += '<div class="rels"><div class="mlabel" style="display:block;margin-bottom:5px">Open forks</div>' + r.forks.map((f) => '<p class="mblock">Fork &middot; ' + esc(f) + '</p>').join('') + '</div>'; }
     if ((r.sources || []).length) { h += '<div class="rels"><div class="mlabel" style="display:block;margin-bottom:5px">Sources</div>' + r.sources.map((s) => '<div class="rsrc">' + (s.url ? '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.title || s.url) + '</a>' : esc(s.title || '')) + (s.note ? '<div class="relnote">' + esc(s.note) + '</div>' : '') + '</div>').join('') + '</div>'; }
+    if (r._doc) h += '<details class="bkfold" open><summary>Full dossier <span class="muted">(' + (r._docwords || 0).toLocaleString() + ' words &middot; research\\' + esc(r.id) + '.md)</span></summary><div class="wbdoc">' + mdLite(r._doc) + '</div></details>';
     return h;
   }
   if (type === 'note') { const n = byId(P.notes, id); if (!n) return ''; return '<div class="msub">' + esc(n.date || 'Note') + '</div><p class="mblock" style="white-space:pre-wrap">' + esc(n.text || '') + '</p>'; }
@@ -755,7 +790,13 @@ export function buildSearchIndex() {
   (P.religions || []).forEach((r) => IDX.push({ type: 'religion', id: r.id, name: r.name, sub: 'Faith' }));
   (P.pantheon || []).forEach((p) => IDX.push({ type: 'pantheon', id: p.id, name: p.name, sub: 'Pantheon' }));
   (P.reading || []).forEach((b) => IDX.push({ type: 'reading', id: b.id, name: b.title, sub: 'Reading' }));
-  ((P._reference && P._reference.entries) || []).forEach((e) => IDX.push({ type: 'ref', id: e.id, name: e.name, sub: e._label, blob: ((e.description || '') + ' ' + (e.category || '')).toLowerCase() }));
+  /* The reference index spans EVERY downloaded pack, including packs switched off in the Reference
+   * view — searching your whole library from the top bar while you write is the point, and a hit
+   * you cannot see because of a filter set an hour ago on another screen is a worse surprise than a
+   * hit from a pack you forgot you had. The trade is that a result has to say where it came from,
+   * which is what the pack name on the end of the subtitle is for. */
+  const refPackCount = ((P._reference && P._reference.packs) || []).length;
+  ((P._reference && P._reference.entries) || []).forEach((e) => IDX.push({ type: 'ref', id: e.id, name: e.name, sub: (e._label || 'Reference') + (refPackCount > 1 && e._packLabel ? ' · ' + e._packLabel : ''), blob: ((e.description || '') + ' ' + (e.category || '')).toLowerCase() }));
   return IDX;
 }
 export function searchResults(idx, q) {

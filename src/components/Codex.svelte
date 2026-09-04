@@ -23,6 +23,7 @@
     ['books', 'Books'], ['board', 'Character Board'], ['web', 'Web'], ['lessons', 'Lessons'], ['themes', 'Themes'],
     ['faiths', 'Faiths'], ['pantheon', 'Pantheon'], ['threads', 'Threads'], ['worlds', 'Worlds'], ['outline', 'Outline'],
     ['write', 'Write'], ['notes', 'Notes'], ['research', 'Research'], ['reading', 'Reading'], ['reference', 'Reference'],
+    ['library', 'Library'],
   ];
 
   let view = $state('dashboard');
@@ -128,6 +129,7 @@
       case 'outline': return E.vOutline();
       case 'notes': return E.vNotes();
       case 'research': return E.vResearch();
+      case 'library': return E.vLibrary();
       case 'reading': return E.vReading();
       default: return '';
     }
