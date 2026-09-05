@@ -33,6 +33,10 @@
   let searchOpen = $state(false);
   let detailType = $state('');
   let detailId = $state('');
+  /* Where you came from. Opening a link inside the drawer used to replace it with no way back —
+   * on a phone the only exit was the OS back gesture, which leaves the app. (2026-09-04) */
+  let detailStack: { type: string; id: string }[] = $state([]);
+  let histMark = false;
   let editing = $state(false);
   let writeTarget = $state('');
   let idx: any[] = $state([]);
@@ -173,17 +177,55 @@
       const raw = det.getAttribute('data-detail') || '';
       const i = raw.indexOf(':');
       if (i > 0) {
-        detailType = raw.slice(0, i);
-        detailId = raw.slice(i + 1); // `detail` derives from these + rev
+        openDetail(raw.slice(0, i), raw.slice(i + 1)); // `detail` derives from these + rev
       }
       searchOpen = false;
       return;
     }
   }
 
-  function closeDetail() {
+  function openDetail(type: string, id: string) {
+    if (detailType && detailId && (detailType !== type || detailId !== id)) {
+      detailStack = [...detailStack, { type: detailType, id: detailId }];
+    }
+    detailType = type;
+    detailId = id;
+    if (!histMark) {
+      histMark = true;
+      try { history.pushState({ wcDetail: true }, ''); } catch { /* no history: back button still works */ }
+    }
+  }
+
+  /** One step back up the trail; from the first panel, close. */
+  function goBack() {
+    const prev = detailStack[detailStack.length - 1];
+    if (prev) {
+      detailStack = detailStack.slice(0, -1);
+      detailType = prev.type;
+      detailId = prev.id;
+      return;
+    }
+    closeDetail();
+  }
+
+  /** The phone's back gesture / the browser's back button closes the drawer, never the app. */
+  function onPopState() {
+    histMark = false;
+    if (detailType) clearDetail();
+  }
+
+  function clearDetail() {
+    detailStack = [];
     detailType = '';
     detailId = '';
+  }
+
+  function closeDetail() {
+    clearDetail();
+    if (histMark) {
+      histMark = false;
+      try { history.back(); } catch { /* nothing to unwind */ }
+    }
   }
   // save() bumps updatedAt -> the rehydrate effect runs -> rev++ -> the derived drawer refreshes.
   function afterEdit() {
@@ -218,7 +260,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} onclick={onWindowClick} />
+<svelte:window onkeydown={onKey} onclick={onWindowClick} onpopstate={onPopState} />
 
 <header>
   <h1>Writer’s Codex</h1>
@@ -301,12 +343,17 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="overlay on" onclick={(e) => { if (e.target === e.currentTarget) closeDetail(); }}>
     <div class="modal">
-      <button class="mclose" onclick={closeDetail} aria-label="Close">×</button>
-      {#if isEditable(detailType) && !DEMO}
-        <div class="drawertools">
-          <button class="btn" onclick={() => (editing = true)}>Edit</button>
+      <div class="mbar">
+        {#if detailStack.length}
+          <button class="mnav" onclick={goBack}>‹ Back</button>
+        {/if}
+        <div class="mbarright">
+          {#if isEditable(detailType) && !DEMO}
+            <button class="mnav" onclick={() => (editing = true)}>Edit</button>
+          {/if}
+          <button class="mclose" onclick={closeDetail} aria-label="Close">×</button>
         </div>
-      {/if}
+      </div>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="mcontent" bind:this={drawerEl} onclick={onHostClick}>
         {@html detail}
@@ -345,8 +392,35 @@
     border-bottom: 1px solid var(--line);
   }
   .viewtitle { margin-bottom: 14px; }
-  .drawertools { position: absolute; top: 12px; left: 16px; z-index: 2; }
-  .drawertools .btn { padding: 5px 12px; font-size: 12.5px; }
+  /* The drawer's own header. Edit used to sit absolutely positioned over the title, at full button
+   * size, and there was no way back at all. (2026-09-04) */
+  .mbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -24px -24px 12px;
+    padding: 12px 20px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+  }
+  .mbarright { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .mnav {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 12.5px;
+    padding: 5px 11px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mnav:hover { color: var(--ink); border-color: var(--accent); }
+  /* the close button leaves its absolute corner and joins the bar */
+  .mbar .mclose { position: static; flex: none; }
   @media (max-width: 760px) {
     .mainnav {
       top: 0;

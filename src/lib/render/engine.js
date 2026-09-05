@@ -709,6 +709,10 @@ export function detailHTML(type, id) {
     if (c.thread) h += '<p class="mblock"><span class="mlabel">Thread</span>' + dlink('thread', c.thread, (threadById(c.thread) || {}).name || c.thread) + '</p>';
     if (c.summary) h += '<p class="mblock">' + esc(c.summary) + '</p>';
     h += gallery(c.media);
+    /* The prose itself (added 2026-09-04). It was only ever readable in the Write view, so opening a
+     * chapter from the Outline showed its word count and no words — the first thing TJ hit after The
+     * Hidden landed. */
+    if (c._prose) h += '<details class="bkfold" open><summary>Read the chapter <span class="muted">(' + (c._words || c.wordcount || 0).toLocaleString() + ' words)</span></summary><div class="wbdoc prosebody">' + mdLite(c._prose) + '</div></details>';
     if (c.bodyFile) h += '<div class="src"><b>Manuscript:</b> ' + esc(c.bodyFile) + '</div>';
     (c.scenes || []).forEach((s, si) => { h += '<div class="mblock"><b>' + esc(s.title || 'Scene') + '</b>' + (s.summary ? '<br>' + esc(s.summary) : '') + imgSlot('scene', s.id || (c.id + '-s' + si), 'card', s.image) + '</div>'; });
     return h;

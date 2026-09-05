@@ -85,7 +85,12 @@ export async function hydrate(projectId: string, data: ProjectData): Promise<Pro
 
   out.chapters = (data.chapters || []).map((c) => {
     const md = prose[c.id];
-    return md != null ? { ...c, _prose: md, _words: wordCount(md) } : c;
+    if (md == null) return c;
+    /* Read-only views get the prose without the file's header block or its capture comments — the
+     * shelf files carry both, and they were rendering as the chapter's opening paragraph.
+     * The editor is untouched: Write.svelte reads and writes the store directly. (2026-09-04) */
+    const body = md.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/<!--[\s\S]*?-->/g, '').trim();
+    return { ...c, _prose: body, _words: wordCount(body) };
   });
   out.worlds = (data.worlds || []).map((w) => {
     const md = wb[w.id];
