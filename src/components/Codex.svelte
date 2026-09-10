@@ -17,13 +17,14 @@
   import WebGraph from './views/WebGraph.svelte';
   import Reference from './views/Reference.svelte';
   import Write from './views/Write.svelte';
+  import Dictionary from './views/Dictionary.svelte';
 
   const VIEWS: [string, string][] = [
     ['dashboard', 'Dashboard'], ['loops', 'Open loops'], ['timeline', 'Timeline'], ['characters', 'Characters'],
     ['books', 'Books'], ['board', 'Character Board'], ['web', 'Web'], ['lessons', 'Lessons'], ['themes', 'Themes'],
     ['faiths', 'Faiths'], ['pantheon', 'Pantheon'], ['threads', 'Threads'], ['worlds', 'Worlds'], ['outline', 'Outline'],
     ['write', 'Write'], ['notes', 'Notes'], ['research', 'Research'], ['reading', 'Reading'], ['reference', 'Reference'],
-    ['library', 'Library'],
+    ['library', 'Library'], ['dictionary', 'Dictionary'],
   ];
 
   let view = $state('dashboard');
@@ -319,6 +320,8 @@
       <CharacterBoard {rev} />
     {:else if view === 'web'}
       <WebGraph {rev} />
+    {:else if view === 'dictionary'}
+      <Dictionary />
     {:else if view === 'reference'}
       <Reference {rev} onPacksChange={rehydrate} />
     {:else if view === 'write'}

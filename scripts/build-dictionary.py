@@ -8,8 +8,8 @@ you would be gaining. The decision and the measurements behind it:
 `_brain\\writers-codex\\docs\\DICTIONARY-DECISION-2026-09-09.md`.
 
 WHAT IT PRODUCES
-  src/lib/sample/dictionary/index.json   the manifest: counts, licence, attribution, shard list
-  src/lib/sample/dictionary/en-<a..z>.json   one file per first letter
+  public/dictionary/index.json          the manifest: counts, licence, attribution, shard list
+  public/dictionary/en-<a..z>.json      one file per first letter
 
 Each headword maps to a list of senses:
   p  part of speech (n | v | adj | adv)
@@ -39,7 +39,10 @@ import json, os, sys, glob, urllib.request, datetime, concurrent.futures as cf
 
 RAW  = "https://raw.githubusercontent.com/globalwordnet/english-wordnet/main/src/yaml"
 WORK = os.path.join(os.path.expanduser("~"), ".wc-dict-build")
-OUT  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "lib", "sample", "dictionary")
+# public/ so `vite build` copies it into dist/ and one `wrangler deploy` ships it from the app's
+# own origin — no second repo, no CDN cache to wait on. Git-ignored: it is 31 MB of derived data
+# from a public source, and this script regenerates it.
+OUT  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "dictionary")
 LEXNAMES = """adj.all adj.pert adj.ppl adv.all noun.Tops noun.act noun.animal noun.artifact
 noun.attribute noun.body noun.cognition noun.communication noun.event noun.feeling noun.food
 noun.group noun.location noun.motive noun.object noun.person noun.phenomenon noun.plant

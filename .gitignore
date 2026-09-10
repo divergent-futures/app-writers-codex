@@ -24,3 +24,7 @@ Thumbs.db
 /.sample-hidden/
 # quarantine for files the device bridge cannot delete
 /_to_delete/
+
+# The writer's dictionary: 31 MB of derived data from Open English WordNet, rebuilt by
+# `python scripts/build-dictionary.py`. Shipped to the browser from dist/, never committed.
+/public/dictionary/

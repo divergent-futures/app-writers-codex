@@ -24,6 +24,13 @@
  *                      half). Local-only for now, same reasoning as craftRuns/registerRows above — see
  *                      the v6 upgrade comment below.
  *
+ *   - dictionary     : the writer's dictionary, keyed by SHARD (one record per first letter), v7.
+ *                      NOT one record per headword: 127,737 puts would take minutes and buy nothing,
+ *                      because a lookup only ever needs the shard its word lives in. Each record holds
+ *                      the shard's JSON as a STRING; `dictionary.ts` parses at most a couple of shards
+ *                      at a time and keeps memory bounded. Reference data, not user data — never
+ *                      synced, never in the outbox, and safe to throw away and re-download.
+ *
  * `idb` is isolated to this file so the store engine stays swappable.
  */
 
@@ -96,6 +103,15 @@ export interface OutboxEntry {
   updatedAt: number; // client write time — the LWW key sent to the server
 }
 
+/** One shard of a downloaded dictionary — `id` is `<language>-<letter>`, e.g. "en-s". */
+export interface DictionaryShardRecord {
+  id: string;
+  language: string;
+  json: string; // the shard, unparsed — see the module comment for why it is stored as a string
+  words: number;
+  bytes: number;
+}
+
 interface CodexDB extends DBSchema {
   projects: { key: string; value: ProjectRecord };
   prose: { key: [string, string]; value: ProseRecord };
@@ -108,12 +124,13 @@ interface CodexDB extends DBSchema {
   craftRuns: { key: string; value: CraftRun };
   registerRows: { key: string; value: RegisterRow };
   userCraftSystems: { key: string; value: CraftSystem };
+  dictionary: { key: string; value: DictionaryShardRecord };
 }
 
 // The read-only demo gets its OWN database. Same origin, different store — so a visitor clicking
 // through /try can never seed into, read, or overwrite a real library sitting in this browser.
 const DB_NAME = DEMO ? 'writers-codex-demo' : 'writers-codex';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let _db: Promise<IDBPDatabase<CodexDB>> | null = null;
 
@@ -159,6 +176,13 @@ function db(): Promise<IDBPDatabase<CodexDB>> {
         // v6: user-authored Craft Registry instruments (Phase 9, design §3.12). Brand-new data —
         // nothing to backfill. Not projectId-scoped, so no per-project key — see the module comment.
         if (!d.objectStoreNames.contains('userCraftSystems')) d.createObjectStore('userCraftSystems', { keyPath: 'id' });
+
+        // v7: the writer's dictionary, one record per first-letter shard. Brand-new data, nothing to
+        // backfill. Deliberately NOT in `OutboxStore`: it is public reference data downloaded from the
+        // app's own origin, identical for every user, and re-downloadable — putting 31 MB of it
+        // through the sync engine would cost every device a fortune to move something it can already
+        // fetch. See src/lib/dictionary.ts.
+        if (!d.objectStoreNames.contains('dictionary')) d.createObjectStore('dictionary', { keyPath: 'id' });
       },
     });
   }
@@ -505,6 +529,31 @@ export async function allCachedPacks(): Promise<(ReferencePack & { id: string })
 
 export async function deletePack(id: string): Promise<void> {
   await (await db()).delete('packs', id);
+}
+
+/* ---------------- dictionary (reference data, never synced) ---------------- */
+
+export async function getDictShard(id: string): Promise<DictionaryShardRecord | undefined> {
+  return (await db()).get('dictionary', id);
+}
+
+export async function putDictShard(rec: DictionaryShardRecord): Promise<void> {
+  await (await db()).put('dictionary', rec);
+}
+
+/** Ids only. Reading the records would pull tens of megabytes just to answer "is it downloaded?". */
+export async function listDictShardIds(): Promise<string[]> {
+  return (await (await db()).getAllKeys('dictionary')) as string[];
+}
+
+/** Remove one language's shards — the way back out of 31 MB of storage. */
+export async function deleteDictLanguage(language: string): Promise<void> {
+  const d = await db();
+  const tx = d.transaction('dictionary', 'readwrite');
+  for (const k of (await tx.store.getAllKeys()) as string[]) {
+    if (k.startsWith(language + '-')) await tx.store.delete(k);
+  }
+  await tx.done;
 }
 
 /* ---------------- meta / settings ---------------- */

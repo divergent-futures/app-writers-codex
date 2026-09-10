@@ -10,6 +10,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       workbox: {
+        // NOTE (2026-09-10): json is deliberately NOT in this list. public/dictionary/ is 31 MB of
+        // writer's-dictionary data served from this origin; precaching it would force every install
+        // to download the whole dictionary whether the reader wants it or not, which is exactly what
+        // src/lib/dictionary.ts's download-on-demand design exists to avoid. Do not add json here.
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         // the bundled example world / reference are large lazy chunks — precache so the app
         // (and its optional demo) work fully offline.
